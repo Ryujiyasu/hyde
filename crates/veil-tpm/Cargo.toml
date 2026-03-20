@@ -12,4 +12,5 @@ tss-esapi.workspace = true
 zeroize.workspace = true
 tracing.workspace = true
 aes-gcm = "0.10"
+argon2 = "0.5"
 getrandom = "0.2"

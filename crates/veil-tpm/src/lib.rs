@@ -211,14 +211,15 @@ impl TeeBackend for TpmBackend {
         let parent = self.primary_handle.ok_or(VeilError::PrimaryKeyNotFound)?;
         let (private, public) = decode_sealed_blobs(&key.blob)?;
 
-        // Load and unseal the Data Key
+        // Load sealed object, unseal to get Data Key, then flush
         let loaded = self.context.load(parent, private, public).map_err(tpm_err)?;
-        let unsealed = self.context.unseal(loaded.into()).map_err(tpm_err)?;
+        let obj_handle: tss_esapi::handles::ObjectHandle = loaded.into();
+        let unsealed = self.context.unseal(obj_handle).map_err(tpm_err)?;
+        // unseal consumes the loaded object, but we flush to be safe
+        let _ = self.context.flush_context(obj_handle);
+
         let mut data_key: Vec<u8> = unsealed.to_vec();
-
-        // AES-256-GCM encrypt
         let result = aes_gcm_encrypt(&data_key, data);
-
         zeroize::Zeroize::zeroize(&mut data_key);
         result
     }
@@ -227,24 +228,53 @@ impl TeeBackend for TpmBackend {
         let parent = self.primary_handle.ok_or(VeilError::PrimaryKeyNotFound)?;
         let (private, public) = decode_sealed_blobs(&key.blob)?;
 
-        // Load and unseal the Data Key
+        // Load sealed object, unseal to get Data Key, then flush
         let loaded = self.context.load(parent, private, public).map_err(tpm_err)?;
-        let unsealed = self.context.unseal(loaded.into()).map_err(tpm_err)?;
+        let obj_handle: tss_esapi::handles::ObjectHandle = loaded.into();
+        let unsealed = self.context.unseal(obj_handle).map_err(tpm_err)?;
+        let _ = self.context.flush_context(obj_handle);
+
         let mut data_key: Vec<u8> = unsealed.to_vec();
-
-        // AES-256-GCM decrypt
         let result = aes_gcm_decrypt(&data_key, sealed);
-
         zeroize::Zeroize::zeroize(&mut data_key);
         result
     }
 
-    fn backup(&mut self, _key: &WrappedKey, _passphrase: &[u8]) -> Result<Vec<u8>> {
-        todo!("Key backup — Phase 1 later")
+    fn backup(&mut self, key: &WrappedKey, passphrase: &[u8]) -> Result<Vec<u8>> {
+        // Encrypt the WrappedKey blob with a passphrase-derived key (Argon2id + AES-256-GCM).
+        // This allows recovery on a different device if the TPM is lost.
+        let mut derived_key = derive_key_from_passphrase(passphrase)?;
+        let result = aes_gcm_encrypt(&derived_key.key, &key.blob);
+        zeroize::Zeroize::zeroize(&mut derived_key.key);
+
+        let encrypted = result?;
+
+        // Output: [16 bytes salt] [encrypted blob (nonce + ciphertext + tag)]
+        let mut output = Vec::with_capacity(16 + encrypted.len());
+        output.extend_from_slice(&derived_key.salt);
+        output.extend_from_slice(&encrypted);
+        Ok(output)
     }
 
-    fn restore(&mut self, _backup: &[u8], _passphrase: &[u8]) -> Result<WrappedKey> {
-        todo!("Key recovery — Phase 1 later")
+    fn restore(&mut self, backup: &[u8], passphrase: &[u8]) -> Result<WrappedKey> {
+        if backup.len() < 16 + 12 + 16 {
+            // Need at least: 16 salt + 12 nonce + 16 tag
+            return Err(VeilError::RecoveryFailed("backup too short".into()));
+        }
+
+        let salt = &backup[..16];
+        let encrypted = &backup[16..];
+
+        let mut derived_key = derive_key_with_salt(passphrase, salt)?;
+        let blob = aes_gcm_decrypt(&derived_key.key, encrypted)
+            .map_err(|_| VeilError::RecoveryFailed("wrong passphrase or corrupted backup".into()));
+        zeroize::Zeroize::zeroize(&mut derived_key.key);
+
+        let blob = blob?;
+        Ok(WrappedKey {
+            blob,
+            backend: BackendType::Tpm,
+        })
     }
 
     fn backend_type(&self) -> BackendType {
@@ -322,4 +352,38 @@ fn aes_gcm_decrypt(key: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
     cipher
         .decrypt(nonce, ciphertext)
         .map_err(|_| VeilError::SealMismatch)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers: Argon2id passphrase key derivation
+// ---------------------------------------------------------------------------
+
+struct DerivedKey {
+    key: Vec<u8>,
+    salt: [u8; 16],
+}
+
+fn derive_key_from_passphrase(passphrase: &[u8]) -> Result<DerivedKey> {
+    let mut salt = [0u8; 16];
+    getrandom::getrandom(&mut salt)
+        .map_err(|e| VeilError::RecoveryFailed(format!("random salt generation failed: {e}")))?;
+    derive_key_with_salt(passphrase, &salt)
+}
+
+fn derive_key_with_salt(passphrase: &[u8], salt: &[u8]) -> Result<DerivedKey> {
+    use argon2::Argon2;
+
+    let mut key = vec![0u8; 32];
+    let argon2 = Argon2::default(); // Argon2id with default params
+    argon2
+        .hash_password_into(passphrase, salt, &mut key)
+        .map_err(|e| VeilError::RecoveryFailed(format!("key derivation failed: {e}")))?;
+
+    let mut salt_arr = [0u8; 16];
+    salt_arr.copy_from_slice(&salt[..16]);
+
+    Ok(DerivedKey {
+        key,
+        salt: salt_arr,
+    })
 }

@@ -116,3 +116,59 @@ fn test_tampered_ciphertext_fails() {
     let result = backend.unseal(&wrapped, &sealed);
     assert!(result.is_err());
 }
+
+// ---------------------------------------------------------------------------
+// Backup / Restore
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_backup_restore_roundtrip() {
+    let mut backend = create_backend();
+    backend.initialize_primary_key().unwrap();
+
+    let wrapped = backend.generate_data_key().unwrap();
+    let passphrase = b"my-recovery-passphrase-2024";
+
+    // Backup the wrapped key
+    let backup = backend.backup(&wrapped, passphrase).unwrap();
+    assert!(!backup.is_empty());
+    // Should be: 16 salt + 12 nonce + blob + 16 tag
+    assert!(backup.len() > 16 + 12 + 16);
+
+    // Restore from backup
+    let restored = backend.restore(&backup, passphrase).unwrap();
+
+    // The restored key should decrypt data sealed with the original key
+    let sealed = backend.seal(&wrapped, b"hello from backup").unwrap();
+    let recovered = backend.unseal(&restored, &sealed).unwrap();
+    assert_eq!(recovered, b"hello from backup");
+}
+
+#[test]
+fn test_backup_wrong_passphrase_fails() {
+    let mut backend = create_backend();
+    backend.initialize_primary_key().unwrap();
+
+    let wrapped = backend.generate_data_key().unwrap();
+    let backup = backend.backup(&wrapped, b"correct-password").unwrap();
+
+    let result = backend.restore(&backup, b"wrong-password");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_backup_tampered_fails() {
+    let mut backend = create_backend();
+    backend.initialize_primary_key().unwrap();
+
+    let wrapped = backend.generate_data_key().unwrap();
+    let mut backup = backend.backup(&wrapped, b"password").unwrap();
+
+    // Tamper with the encrypted blob (after the salt)
+    if backup.len() > 20 {
+        backup[20] ^= 0xFF;
+    }
+
+    let result = backend.restore(&backup, b"password");
+    assert!(result.is_err());
+}
