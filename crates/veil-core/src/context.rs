@@ -1,6 +1,7 @@
 use crate::{
     backend::{TeeBackend, WrappedKey},
     error::Result,
+    recovery::{BackupBundle, RecoveryStrategy},
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,19 +45,27 @@ impl VeilContext {
         self.backend.unseal(&protected.key, &protected.ciphertext)
     }
 
-    /// Backup protected data with a passphrase (for device migration / recovery).
-    pub fn backup(&mut self, protected: &ProtectedData, passphrase: &[u8]) -> Result<Vec<u8>> {
-        self.backend.backup(&protected.key, passphrase)
+    /// Backup protected data using a chosen recovery strategy.
+    ///
+    /// `secret` is strategy-specific (e.g., passphrase bytes for `PassphraseRecovery`).
+    pub fn backup(
+        &self,
+        protected: &ProtectedData,
+        strategy: &dyn RecoveryStrategy,
+        secret: Option<&[u8]>,
+    ) -> Result<BackupBundle> {
+        strategy.backup(&protected.key, secret)
     }
 
-    /// Restore protected data from a passphrase backup.
+    /// Restore protected data from a backup using the matching recovery strategy.
     pub fn restore(
-        &mut self,
-        backup: &[u8],
+        &self,
+        bundle: &BackupBundle,
         ciphertext: &[u8],
-        passphrase: &[u8],
+        strategy: &dyn RecoveryStrategy,
+        secret: &[u8],
     ) -> Result<ProtectedData> {
-        let key = self.backend.restore(backup, passphrase)?;
+        let key = strategy.restore(bundle, secret)?;
         Ok(ProtectedData {
             key,
             ciphertext: ciphertext.to_vec(),
@@ -66,10 +75,10 @@ impl VeilContext {
 }
 
 /// TEE-protected data. Serializable for persistence.
-/// Cannot be decrypted without the corresponding TEE (or passphrase recovery).
+/// Cannot be decrypted without the corresponding TEE (or recovery).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtectedData {
     key: WrappedKey,
-    ciphertext: Vec<u8>,
+    pub ciphertext: Vec<u8>,
     version: u8,
 }

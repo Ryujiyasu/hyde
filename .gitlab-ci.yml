@@ -1,0 +1,55 @@
+stages:
+  - check
+  - test
+
+variables:
+  CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
+  TCTI: "swtpm:host=localhost,port=2321"
+
+# Cache cargo registry and build artifacts between jobs
+cache:
+  key: "${CI_COMMIT_REF_SLUG}"
+  paths:
+    - .cargo/registry
+    - .cargo/git
+    - target/
+
+# ---------------------------------------------------------------------------
+# Check stage: fast feedback on compilation and formatting
+# ---------------------------------------------------------------------------
+
+check:
+  stage: check
+  image: rust:1.70
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq libtss2-dev
+    - rustup component add clippy rustfmt
+  script:
+    - cargo fmt --all -- --check
+    - cargo clippy --workspace -- -D warnings
+    - cargo check --workspace
+
+# ---------------------------------------------------------------------------
+# Test stage: full test suite with swtpm
+# ---------------------------------------------------------------------------
+
+test:
+  stage: test
+  image: rust:1.70
+  services: []
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libtss2-dev swtpm swtpm-tools
+    # Start software TPM
+    - mkdir -p /tmp/swtpm
+    - swtpm socket
+        --tpmstate dir=/tmp/swtpm
+        --ctrl type=tcp,port=2322
+        --server type=tcp,port=2321
+        --tpm2 --daemon
+    - sleep 1
+    - swtpm_ioctl --tcp 127.0.0.1:2322 -i
+  script:
+    - cargo test --workspace -- --test-threads=1
+  after_script:
+    - pkill swtpm || true

@@ -13,12 +13,15 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://gitlab.com/Ryujiyasu/veil"
+keywords = ["tee", "tpm", "encryption", "security", "hardware"]
+categories = ["cryptography", "hardware-support"]
+rust-version = "1.70"
 
 [workspace.dependencies]
-veil-core = { path = "crates/veil-core" }
-veil-tpm = { path = "crates/veil-tpm" }
-veil-software = { path = "crates/veil-software" }
-veil-macros = { path = "crates/veil-macros" }
+veil-core = { path = "crates/veil-core", version = "0.1.0" }
+veil-tpm = { path = "crates/veil-tpm", version = "0.1.0" }
+veil-software = { path = "crates/veil-software", version = "0.1.0" }
+veil-macros = { path = "crates/veil-macros", version = "0.1.0" }
 tss-esapi = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

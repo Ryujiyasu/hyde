@@ -40,14 +40,6 @@ impl TeeBackend for SoftwareBackend {
         Err(VeilError::NoHardware)
     }
 
-    fn backup(&mut self, _key: &WrappedKey, _passphrase: &[u8]) -> Result<Vec<u8>> {
-        Err(VeilError::NoHardware)
-    }
-
-    fn restore(&mut self, _backup: &[u8], _passphrase: &[u8]) -> Result<WrappedKey> {
-        Err(VeilError::NoHardware)
-    }
-
     fn backend_type(&self) -> BackendType {
         BackendType::Software
     }

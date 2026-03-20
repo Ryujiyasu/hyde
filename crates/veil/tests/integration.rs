@@ -1,4 +1,4 @@
-use veil::{auto_detect, FallbackPolicy};
+use veil::{auto_detect, FallbackPolicy, PassphraseRecovery, Protected};
 
 /// These tests require swtpm running.
 /// Set env: TCTI="swtpm:host=127.0.0.1,port=2323"
@@ -50,28 +50,98 @@ fn test_protect_unprotect_multiple() {
 #[test]
 fn test_backup_restore_via_context() {
     let mut ctx = auto_detect(FallbackPolicy::Deny).unwrap();
+    let strategy = PassphraseRecovery;
 
     let secret = b"backup via context API";
     let protected = ctx.protect(secret).unwrap();
 
     // Backup
     let passphrase = b"context-level-passphrase";
-    let backup = ctx.backup(&protected, passphrase).unwrap();
+    let bundle = ctx.backup(&protected, &strategy, Some(passphrase)).unwrap();
 
-    // Serialize the ciphertext (simulating saving to disk)
-    let json = serde_json::to_string(&protected).unwrap();
-    let saved: veil::ProtectedData = serde_json::from_str(&json).unwrap();
-
-    // Restore on a "new device" (same TPM in this test)
-    let ciphertext_json = serde_json::to_value(&saved).unwrap();
-    let ciphertext = ciphertext_json["ciphertext"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_u64().unwrap() as u8)
-        .collect::<Vec<u8>>();
-
-    let restored = ctx.restore(&backup, &ciphertext, passphrase).unwrap();
+    // Restore
+    let restored = ctx
+        .restore(&bundle, &protected.ciphertext, &strategy, passphrase)
+        .unwrap();
     let recovered = ctx.unprotect(&restored).unwrap();
     assert_eq!(recovered, secret);
+}
+
+#[test]
+fn test_backup_bundle_serialize_roundtrip() {
+    let mut ctx = auto_detect(FallbackPolicy::Deny).unwrap();
+    let strategy = PassphraseRecovery;
+
+    let protected = ctx.protect(b"serializable backup").unwrap();
+    let bundle = ctx.backup(&protected, &strategy, Some(b"pass")).unwrap();
+
+    // BackupBundle should be serializable
+    let json = serde_json::to_string(&bundle).unwrap();
+    let deserialized: veil::BackupBundle = serde_json::from_str(&json).unwrap();
+
+    let restored = ctx
+        .restore(&deserialized, &protected.ciphertext, &strategy, b"pass")
+        .unwrap();
+    let recovered = ctx.unprotect(&restored).unwrap();
+    assert_eq!(recovered, b"serializable backup");
+}
+
+// ---------------------------------------------------------------------------
+// #[veil::protect] macro + Protected<T>
+// ---------------------------------------------------------------------------
+
+#[veil::protect]
+struct DocumentKey {
+    key_material: Vec<u8>,
+    label: String,
+}
+
+#[test]
+fn test_protect_macro_roundtrip() {
+    let mut ctx = auto_detect(FallbackPolicy::Deny).unwrap();
+
+    let protected = DocumentKey::protect(
+        &mut ctx,
+        vec![0xDE, 0xAD, 0xBE, 0xEF],
+        "my-key".to_string(),
+    )
+    .unwrap();
+
+    let recovered: DocumentKey = protected.unprotect(&mut ctx).unwrap();
+    assert_eq!(recovered.key_material, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+    assert_eq!(recovered.label, "my-key");
+}
+
+#[test]
+fn test_protect_macro_serialize_roundtrip() {
+    let mut ctx = auto_detect(FallbackPolicy::Deny).unwrap();
+
+    let protected = DocumentKey::protect(
+        &mut ctx,
+        vec![1, 2, 3],
+        "serializable".to_string(),
+    )
+    .unwrap();
+
+    // Protected<T> is serializable
+    let json = serde_json::to_string(&protected).unwrap();
+    let deserialized: Protected<DocumentKey> = serde_json::from_str(&json).unwrap();
+
+    let recovered: DocumentKey = deserialized.unprotect(&mut ctx).unwrap();
+    assert_eq!(recovered.key_material, vec![1, 2, 3]);
+    assert_eq!(recovered.label, "serializable");
+}
+
+#[veil::protect(zeroize = false)]
+struct NonZeroizedData {
+    value: String,
+}
+
+#[test]
+fn test_protect_macro_no_zeroize() {
+    let mut ctx = auto_detect(FallbackPolicy::Deny).unwrap();
+
+    let protected = NonZeroizedData::protect(&mut ctx, "hello".to_string()).unwrap();
+    let recovered: NonZeroizedData = protected.unprotect(&mut ctx).unwrap();
+    assert_eq!(recovered.value, "hello");
 }

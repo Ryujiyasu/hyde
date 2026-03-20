@@ -23,12 +23,6 @@ pub trait TeeBackend: Send + Sync {
     /// Unseal data. Fails if PCR values have changed.
     fn unseal(&mut self, key: &WrappedKey, sealed: &[u8]) -> Result<Vec<u8>>;
 
-    /// Backup a WrappedKey with a passphrase (for device recovery).
-    fn backup(&mut self, key: &WrappedKey, passphrase: &[u8]) -> Result<Vec<u8>>;
-
-    /// Restore a WrappedKey from a passphrase backup.
-    fn restore(&mut self, backup: &[u8], passphrase: &[u8]) -> Result<WrappedKey>;
-
     /// Return the backend type identifier.
     fn backend_type(&self) -> BackendType;
 }

@@ -1,5 +1,7 @@
 use veil_core::backend::TeeBackend;
-use veil_tpm::TpmBackend;
+use veil_core::recovery::RecoveryStrategy;
+use veil_core::PassphraseRecovery;
+use veil_tpm::{PcrPolicy, TpmBackend};
 
 /// These tests require swtpm running on TCP port 2321:
 ///   swtpm socket --tpmstate dir=/tmp/swtpm \
@@ -9,6 +11,11 @@ use veil_tpm::TpmBackend;
 
 fn create_backend() -> TpmBackend {
     TpmBackend::new().expect("Failed to create TpmBackend — is swtpm running?")
+}
+
+fn create_backend_with_pcr() -> TpmBackend {
+    TpmBackend::with_pcr_policy(PcrPolicy::default_production())
+        .expect("Failed to create TpmBackend with PCR policy")
 }
 
 #[test]
@@ -118,25 +125,27 @@ fn test_tampered_ciphertext_fails() {
 }
 
 // ---------------------------------------------------------------------------
-// Backup / Restore
+// Backup / Restore (via RecoveryStrategy)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_backup_restore_roundtrip() {
+fn test_passphrase_backup_restore_roundtrip() {
     let mut backend = create_backend();
     backend.initialize_primary_key().unwrap();
 
     let wrapped = backend.generate_data_key().unwrap();
+    let strategy = PassphraseRecovery;
     let passphrase = b"my-recovery-passphrase-2024";
 
     // Backup the wrapped key
-    let backup = backend.backup(&wrapped, passphrase).unwrap();
-    assert!(!backup.is_empty());
+    let bundle = strategy.backup(&wrapped, Some(passphrase)).unwrap();
+    assert!(!bundle.data.is_empty());
+    assert!(bundle.user_secret.is_none());
     // Should be: 16 salt + 12 nonce + blob + 16 tag
-    assert!(backup.len() > 16 + 12 + 16);
+    assert!(bundle.data.len() > 16 + 12 + 16);
 
     // Restore from backup
-    let restored = backend.restore(&backup, passphrase).unwrap();
+    let restored = strategy.restore(&bundle, passphrase).unwrap();
 
     // The restored key should decrypt data sealed with the original key
     let sealed = backend.seal(&wrapped, b"hello from backup").unwrap();
@@ -145,30 +154,104 @@ fn test_backup_restore_roundtrip() {
 }
 
 #[test]
-fn test_backup_wrong_passphrase_fails() {
+fn test_passphrase_wrong_passphrase_fails() {
     let mut backend = create_backend();
     backend.initialize_primary_key().unwrap();
 
     let wrapped = backend.generate_data_key().unwrap();
-    let backup = backend.backup(&wrapped, b"correct-password").unwrap();
+    let strategy = PassphraseRecovery;
 
-    let result = backend.restore(&backup, b"wrong-password");
+    let bundle = strategy.backup(&wrapped, Some(b"correct-password")).unwrap();
+
+    let result = strategy.restore(&bundle, b"wrong-password");
     assert!(result.is_err());
 }
 
 #[test]
-fn test_backup_tampered_fails() {
+fn test_passphrase_tampered_fails() {
     let mut backend = create_backend();
     backend.initialize_primary_key().unwrap();
 
     let wrapped = backend.generate_data_key().unwrap();
-    let mut backup = backend.backup(&wrapped, b"password").unwrap();
+    let strategy = PassphraseRecovery;
+
+    let mut bundle = strategy.backup(&wrapped, Some(b"password")).unwrap();
 
     // Tamper with the encrypted blob (after the salt)
-    if backup.len() > 20 {
-        backup[20] ^= 0xFF;
+    if bundle.data.len() > 20 {
+        bundle.data[20] ^= 0xFF;
     }
 
-    let result = backend.restore(&backup, b"password");
+    let result = strategy.restore(&bundle, b"password");
     assert!(result.is_err());
+}
+
+#[test]
+fn test_passphrase_no_secret_fails() {
+    let mut backend = create_backend();
+    backend.initialize_primary_key().unwrap();
+
+    let wrapped = backend.generate_data_key().unwrap();
+    let strategy = PassphraseRecovery;
+
+    // Passing None should fail for PassphraseRecovery
+    let result = strategy.backup(&wrapped, None);
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// PCR Policy Binding
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pcr_seal_unseal_roundtrip() {
+    // In swtpm, PCR 0 and 7 are all zeros — but the policy still binds to those values.
+    let mut backend = create_backend_with_pcr();
+    backend.initialize_primary_key().unwrap();
+
+    let wrapped = backend.generate_data_key().unwrap();
+
+    let plaintext = b"PCR-bound secret data";
+    let sealed = backend.seal(&wrapped, plaintext).unwrap();
+    let recovered = backend.unseal(&wrapped, &sealed).unwrap();
+    assert_eq!(recovered, plaintext);
+}
+
+#[test]
+fn test_pcr_generate_multiple_keys() {
+    let mut backend = create_backend_with_pcr();
+    backend.initialize_primary_key().unwrap();
+
+    let k1 = backend.generate_data_key().unwrap();
+    let k2 = backend.generate_data_key().unwrap();
+
+    let s1 = backend.seal(&k1, b"data-1").unwrap();
+    let s2 = backend.seal(&k2, b"data-2").unwrap();
+
+    assert_eq!(backend.unseal(&k1, &s1).unwrap(), b"data-1");
+    assert_eq!(backend.unseal(&k2, &s2).unwrap(), b"data-2");
+}
+
+#[test]
+fn test_pcr_cross_policy_incompatible() {
+    // Key created without PCR policy cannot be unsealed by a PCR-policy backend
+    // (and vice versa), because the authPolicy digest differs.
+    let mut backend_no_pcr = create_backend();
+    backend_no_pcr.initialize_primary_key().unwrap();
+    let key_no_pcr = backend_no_pcr.generate_data_key().unwrap();
+    let _sealed = backend_no_pcr.seal(&key_no_pcr, b"no-pcr-data").unwrap();
+
+    let mut backend_pcr = create_backend_with_pcr();
+    backend_pcr.initialize_primary_key().unwrap();
+
+    // Trying to unseal a non-PCR key with a PCR-policy backend should fail
+    // because the PCR backend uses a policy session, but the object has user_with_auth.
+    // Actually this may succeed since user_with_auth objects accept any session.
+    // The real incompatibility is the other way: PCR-bound key without policy session fails.
+    let key_pcr = backend_pcr.generate_data_key().unwrap();
+    let sealed_pcr = backend_pcr.seal(&key_pcr, b"pcr-data").unwrap();
+
+    // PCR-bound key with no-PCR backend should fail (needs policy session but uses HMAC)
+    let result = backend_no_pcr.unseal(&key_pcr, &sealed_pcr);
+    assert!(result.is_err(), "PCR-bound key should not unseal without policy session");
 }
