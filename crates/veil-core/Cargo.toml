@@ -1,5 +1,5 @@
 [package]
-name = "veil-core"
+name = "veil-tee-core"
 description = "Core traits and types for veil TEE abstraction"
 version.workspace = true
 edition.workspace = true

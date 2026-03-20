@@ -110,11 +110,11 @@ pub fn protect(attr: TokenStream, item: TokenStream) -> TokenStream {
             /// Serializes the struct, encrypts it via `VeilContext`, and returns
             /// a `Protected<Self>` that can only be decrypted with the same TEE.
             #vis fn protect(
-                ctx: &mut veil_core::VeilContext,
+                ctx: &mut veil_tee_core::VeilContext,
                 #(#field_params),*
-            ) -> veil_core::Result<veil_core::Protected<Self>> {
+            ) -> veil_tee_core::Result<veil_tee_core::Protected<Self>> {
                 let value = Self { #(#field_names),* };
-                veil_core::Protected::new(ctx, &value)
+                veil_tee_core::Protected::new(ctx, &value)
             }
         }
 

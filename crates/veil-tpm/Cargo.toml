@@ -1,5 +1,5 @@
 [package]
-name = "veil-tpm"
+name = "veil-tee-tpm"
 description = "TPM 2.0 backend for veil"
 version.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ categories.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-veil-core.workspace = true
+veil-tee-core.workspace = true
 tss-esapi.workspace = true
 zeroize.workspace = true
 tracing.workspace = true

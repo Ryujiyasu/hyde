@@ -1,4 +1,4 @@
-use veil::{auto_detect, FallbackPolicy, PassphraseRecovery, Protected};
+use veil_tee::{auto_detect, FallbackPolicy, PassphraseRecovery, Protected};
 
 /// These tests require swtpm running.
 /// Set env: TCTI="swtpm:host=127.0.0.1,port=2323"
@@ -26,7 +26,7 @@ fn test_protected_data_serialize_roundtrip() {
     assert!(!json.is_empty());
 
     // Deserialize back
-    let deserialized: veil::ProtectedData = serde_json::from_str(&json).unwrap();
+    let deserialized: veil_tee::ProtectedData = serde_json::from_str(&json).unwrap();
 
     // Decrypt the deserialized data
     let recovered = ctx.unprotect(&deserialized).unwrap();
@@ -77,7 +77,7 @@ fn test_backup_bundle_serialize_roundtrip() {
 
     // BackupBundle should be serializable
     let json = serde_json::to_string(&bundle).unwrap();
-    let deserialized: veil::BackupBundle = serde_json::from_str(&json).unwrap();
+    let deserialized: veil_tee::BackupBundle = serde_json::from_str(&json).unwrap();
 
     let restored = ctx
         .restore(&deserialized, &protected.ciphertext, &strategy, b"pass")
@@ -87,10 +87,10 @@ fn test_backup_bundle_serialize_roundtrip() {
 }
 
 // ---------------------------------------------------------------------------
-// #[veil::protect] macro + Protected<T>
+// #[veil_tee::protect] macro + Protected<T>
 // ---------------------------------------------------------------------------
 
-#[veil::protect]
+#[veil_tee::protect]
 struct DocumentKey {
     key_material: Vec<u8>,
     label: String,
@@ -132,7 +132,7 @@ fn test_protect_macro_serialize_roundtrip() {
     assert_eq!(recovered.label, "serializable");
 }
 
-#[veil::protect(zeroize = false)]
+#[veil_tee::protect(zeroize = false)]
 struct NonZeroizedData {
     value: String,
 }

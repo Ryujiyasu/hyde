@@ -1,5 +1,5 @@
 [package]
-name = "veil"
+name = "veil-tee"
 description = "Unified abstraction layer for hardware-based TEE in Rust"
 version.workspace = true
 edition.workspace = true
@@ -11,15 +11,15 @@ rust-version.workspace = true
 readme = "../../README.md"
 
 [dependencies]
-veil-core.workspace = true
-veil-macros.workspace = true
+veil-tee-core.workspace = true
+veil-tee-macros.workspace = true
 tracing.workspace = true
 
-[dependencies.veil-tpm]
+[dependencies.veil-tee-tpm]
 workspace = true
 optional = true
 
-[dependencies.veil-software]
+[dependencies.veil-tee-software]
 workspace = true
 optional = true
 
@@ -30,5 +30,5 @@ zeroize.workspace = true
 
 [features]
 default = ["tpm"]
-tpm = ["dep:veil-tpm"]
-software = ["dep:veil-software"]
+tpm = ["dep:veil-tee-tpm"]
+software = ["dep:veil-tee-software"]

@@ -1,5 +1,5 @@
 [package]
-name = "veil-software"
+name = "veil-tee-software"
 description = "Software-only fallback backend for veil (stub)"
 version.workspace = true
 edition.workspace = true
@@ -10,5 +10,5 @@ categories.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-veil-core.workspace = true
+veil-tee-core.workspace = true
 tracing.workspace = true

@@ -17,7 +17,7 @@ use tss_esapi::{
     traits::{Marshall, UnMarshall},
     utils, Context,
 };
-use veil_core::{
+use veil_tee_core::{
     backend::{BackendType, TeeBackend, WrappedKey},
     error::{Result, VeilError},
 };

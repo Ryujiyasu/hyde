@@ -1,5 +1,5 @@
 [package]
-name = "veil-macros"
+name = "veil-tee-macros"
 description = "Procedural macros for veil (#[veil::protect])"
 version.workspace = true
 edition.workspace = true
