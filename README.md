@@ -202,7 +202,7 @@ See [docs/veil-roadmap.md](docs/veil-roadmap.md) for details.
 - [x] PCR policy binding (PCR 0 + 7)
 - [x] `#[veil::protect]` macro + `Protected<T>` wrapper
 - [x] CI/CD (GitLab CI + swtpm)
-- [ ] crates.io publish (metadata ready)
+- [x] crates.io publish (veil-tee v0.1.0)
 
 ## Contributing / コントリビューション
 
