@@ -11,3 +11,5 @@ veil-core.workspace = true
 tss-esapi.workspace = true
 zeroize.workspace = true
 tracing.workspace = true
+aes-gcm = "0.10"
+getrandom = "0.2"

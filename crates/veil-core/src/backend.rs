@@ -38,9 +38,9 @@ pub trait TeeBackend: Send + Sync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WrappedKey {
     /// Key material wrapped by the Primary Key.
-    pub(crate) blob: Vec<u8>,
+    pub blob: Vec<u8>,
     /// Which backend produced this wrapped key.
-    pub(crate) backend: BackendType,
+    pub backend: BackendType,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
