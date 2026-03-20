@@ -1,0 +1,25 @@
+[package]
+name = "veil"
+description = "Unified abstraction layer for hardware-based TEE in Rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+veil-core.workspace = true
+veil-macros.workspace = true
+tracing.workspace = true
+
+[dependencies.veil-tpm]
+workspace = true
+optional = true
+
+[dependencies.veil-software]
+workspace = true
+optional = true
+
+[features]
+default = ["tpm"]
+tpm = ["dep:veil-tpm"]
+software = ["dep:veil-software"]

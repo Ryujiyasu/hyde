@@ -1,0 +1,13 @@
+[package]
+name = "veil-tpm"
+description = "TPM 2.0 backend for veil"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+veil-core.workspace = true
+tss-esapi.workspace = true
+zeroize.workspace = true
+tracing.workspace = true
