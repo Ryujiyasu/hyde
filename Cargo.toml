@@ -7,6 +7,9 @@ members = [
     "crates/hyde-software",
     "crates/hyde-macros",
 ]
+exclude = [
+    "examples/demo-app",
+]
 
 [workspace.package]
 version = "0.1.0"

@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hyde — TEE Protection Visualizer</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #3b82f6;
+      --green: #22c55e;
+      --red: #ef4444;
+      --orange: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .header h1 span { color: var(--accent); }
+    .header p { color: var(--muted); margin-top: 4px; font-size: 14px; }
+
+    .status-bar {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .status-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 13px;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+    }
+    .dot.on { background: var(--green); }
+
+    .main {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .input-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .input-section label {
+      font-size: 13px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 8px;
+    }
+    textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 12px;
+      font-size: 15px;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 80px;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    button {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    button:hover { border-color: var(--accent); background: #1e2130; }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+      font-weight: 600;
+    }
+    button.primary:hover { background: #2563eb; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    select {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .pipeline {
+      margin-top: 20px;
+    }
+    .step {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 10px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.4s ease;
+    }
+    .step.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 10px;
+    }
+    .step-label { font-weight: 600; font-size: 15px; }
+    .step-time {
+      font-size: 13px;
+      color: var(--orange);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .step-detail {
+      font-size: 13px;
+      color: var(--muted);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      word-break: break-all;
+      margin-top: 4px;
+    }
+    .step.cache-hit { border-color: var(--green); }
+    .step.cache-hit .step-num { background: var(--green); }
+
+    .result-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 16px;
+    }
+    .result-section h3 {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .result-content {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .total-time {
+      text-align: right;
+      font-size: 14px;
+      color: var(--green);
+      margin-top: 8px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    .connector {
+      width: 2px;
+      height: 16px;
+      background: var(--border);
+      margin: 0 auto;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .connector.visible { opacity: 1; }
+
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .footer a { color: var(--accent); text-decoration: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .loading { animation: pulse 1s infinite; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><span>hyde</span> — TEE Protection Visualizer</h1>
+    <p>TPMによるデータ保護の流れを可視化</p>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-chip">
+      <div class="dot" id="tpmDot"></div>
+      <span id="tpmStatus">TPM: checking...</span>
+    </div>
+    <div class="status-chip">
+      <span id="levelStatus">Level: —</span>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="input-section">
+      <label>① 保護したいデータを入力</label>
+      <textarea id="input" placeholder="例: 社外秘 APIキー sk-abc123...">社外秘: 契約書パスワード X7k9mP</textarea>
+
+      <div class="controls">
+        <button class="primary" id="btnProtect" disabled>🔒 Protect</button>
+        <button id="btnUnprotect" disabled>🔓 Unprotect</button>
+        <button id="btnFlush" disabled>🗑 Cache Flush</button>
+        <select id="levelSelect">
+          <option value="paranoid">Paranoid (毎回TPM)</option>
+          <option value="standard">Standard (Key Cache 30s)</option>
+          <option value="performance">Performance (全Cache 10s)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="pipeline" id="pipeline"></div>
+
+    <div class="result-section" id="resultSection" style="display:none">
+      <h3 id="resultTitle">暗号化結果</h3>
+      <div class="result-content" id="resultContent"></div>
+      <div class="total-time" id="totalTime"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Powered by <a href="#">hyde</a> — Rust + TPM Security Engine
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+
+    let encryptedJson = null;
+
+    async function init() {
+      try {
+        const status = await invoke('get_status');
+        const dot = document.getElementById('tpmDot');
+        const tpmStatus = document.getElementById('tpmStatus');
+
+        if (status.tpm_available) {
+          dot.classList.add('on');
+          tpmStatus.textContent = 'TPM: Connected';
+
+          await invoke('initialize', { level: 'paranoid' });
+          document.getElementById('btnProtect').disabled = false;
+          document.getElementById('btnFlush').disabled = false;
+          updateLevelDisplay('paranoid');
+        } else {
+          tpmStatus.textContent = 'TPM: Not Available';
+        }
+      } catch (e) {
+        console.error('Init failed:', e);
+        document.getElementById('tpmStatus').textContent = 'TPM: Error';
+      }
+    }
+
+    function updateLevelDisplay(level) {
+      const labels = {
+        paranoid: 'Paranoid 🛡',
+        standard: 'Standard ⚡',
+        performance: 'Performance 🚀',
+      };
+      document.getElementById('levelStatus').textContent = 'Level: ' + (labels[level] || level);
+    }
+
+    document.getElementById('levelSelect').addEventListener('change', async (e) => {
+      const level = e.target.value;
+      try {
+        await invoke('set_security_level', { level });
+        updateLevelDisplay(level);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    document.getElementById('btnFlush').addEventListener('click', async () => {
+      await invoke('flush_cache');
+    });
+
+    document.getElementById('btnProtect').addEventListener('click', async () => {
+      const plaintext = document.getElementById('input').value;
+      if (!plaintext) return;
+
+      const pipeline = document.getElementById('pipeline');
+      pipeline.innerHTML = '';
+      document.getElementById('resultSection').style.display = 'none';
+
+      document.getElementById('btnProtect').disabled = true;
+
+      try {
+        const result = await invoke('protect', { plaintext });
+        encryptedJson = result.encrypted_json;
+        document.getElementById('btnUnprotect').disabled = false;
+
+        await animateSteps(result.steps, pipeline);
+
+        document.getElementById('resultTitle').textContent = '🔒 暗号化結果（ディスクに保存される内容）';
+        document.getElementById('resultContent').textContent = result.encrypted_json;
+        document.getElementById('totalTime').textContent = '合計: ' + result.total_ms.toFixed(1) + 'ms';
+        document.getElementById('resultSection').style.display = 'block';
+      } catch (err) {
+        alert('Error: ' + err);
+      } finally {
+        document.getElementById('btnProtect').disabled = false;
+      }
+    });
+
+    document.getElementById('btnUnprotect').addEventListener('click', async () => {
+      if (!encryptedJson) return;
+
+      const pipeline = document.getElementById('pipeline');
+      pipeline.innerHTML = '';
+      document.getElementById('resultSection').style.display = 'none';
+
+      document.getElementById('btnUnprotect').disabled = true;
+
+      try {
+        const result = await invoke('unprotect', { encryptedJson });
+
+        await animateSteps(result.steps, pipeline);
+
+        const label = result.cache_hit
+          ? '⚡ 復号結果（キャッシュヒット）'
+          : '🔓 復号結果（TPMで復元）';
+        document.getElementById('resultTitle').textContent = label;
+        document.getElementById('resultContent').textContent = result.plaintext;
+        document.getElementById('totalTime').textContent = '合計: ' + result.total_ms.toFixed(1) + 'ms';
+        document.getElementById('resultSection').style.display = 'block';
+      } catch (err) {
+        alert('Error: ' + err);
+      } finally {
+        document.getElementById('btnUnprotect').disabled = false;
+      }
+    });
+
+    async function animateSteps(steps, container) {
+      for (let i = 0; i < steps.length; i++) {
+        const s = steps[i];
+
+        if (i > 0) {
+          const conn = document.createElement('div');
+          conn.className = 'connector';
+          container.appendChild(conn);
+          await sleep(100);
+          conn.classList.add('visible');
+        }
+
+        const div = document.createElement('div');
+        div.className = 'step' + (s.label.includes('キャッシュ') ? ' cache-hit' : '');
+        div.innerHTML = `
+          <div class="step-header">
+            <div>
+              <span class="step-num">${s.step}</span>
+              <span class="step-label">${s.label}</span>
+            </div>
+            <span class="step-time">${s.duration_ms.toFixed(1)}ms</span>
+          </div>
+          <div class="step-detail">${s.detail}</div>
+        `;
+        container.appendChild(div);
+        await sleep(150);
+        div.classList.add('visible');
+        await sleep(300);
+      }
+    }
+
+    function sleep(ms) {
+      return new Promise(r => setTimeout(r, ms));
+    }
+
+    init();
+  </script>
+</body>
+</html>
