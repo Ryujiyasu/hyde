@@ -1,6 +1,6 @@
-use veil_tee_core::{
+use hyde_core::{
     backend::{BackendType, TeeBackend, WrappedKey},
-    error::{Result, VeilError},
+    error::{HydeError, Result},
 };
 
 /// Software-only fallback backend (stub in Phase 1).
@@ -25,19 +25,19 @@ impl TeeBackend for SoftwareBackend {
     }
 
     fn initialize_primary_key(&mut self) -> Result<()> {
-        Err(VeilError::NoHardware)
+        Err(HydeError::NoHardware)
     }
 
     fn generate_data_key(&mut self) -> Result<WrappedKey> {
-        Err(VeilError::NoHardware)
+        Err(HydeError::NoHardware)
     }
 
     fn seal(&mut self, _key: &WrappedKey, _data: &[u8]) -> Result<Vec<u8>> {
-        Err(VeilError::NoHardware)
+        Err(HydeError::NoHardware)
     }
 
     fn unseal(&mut self, _key: &WrappedKey, _sealed: &[u8]) -> Result<Vec<u8>> {
-        Err(VeilError::NoHardware)
+        Err(HydeError::NoHardware)
     }
 
     fn backend_type(&self) -> BackendType {

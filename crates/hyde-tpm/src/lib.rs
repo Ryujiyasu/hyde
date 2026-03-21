@@ -17,16 +17,16 @@ use tss_esapi::{
     traits::{Marshall, UnMarshall},
     utils, Context,
 };
-use veil_tee_core::{
+use hyde_core::{
     backend::{BackendType, TeeBackend, WrappedKey},
-    error::{Result, VeilError},
+    error::{HydeError, Result},
 };
 
-/// Persistent handle address for veil's Primary Key: 0x81000001
+/// Persistent handle address for Hyde's Primary Key: 0x81000001
 const PERSISTENT_HANDLE_ADDR: u32 = 0x81000001;
 
-fn tpm_err(e: tss_esapi::Error) -> VeilError {
-    VeilError::Backend(Box::new(e))
+fn tpm_err(e: tss_esapi::Error) -> HydeError {
+    HydeError::Backend(Box::new(e))
 }
 
 /// PCR binding policy for sealed objects.
@@ -189,7 +189,7 @@ impl TpmBackend {
                 HashingAlgorithm::Sha256,
             )
             .map_err(tpm_err)?
-            .ok_or_else(|| VeilError::Backend("failed to create trial session".into()))?;
+            .ok_or_else(|| HydeError::Backend("failed to create trial session".into()))?;
 
         let policy_session: PolicySession = trial_session
             .try_into()
@@ -241,7 +241,7 @@ impl TpmBackend {
                 HashingAlgorithm::Sha256,
             )
             .map_err(tpm_err)?
-            .ok_or_else(|| VeilError::Backend("failed to create policy session".into()))?;
+            .ok_or_else(|| HydeError::Backend("failed to create policy session".into()))?;
 
         let policy_session: PolicySession = policy_auth
             .try_into()
@@ -257,7 +257,7 @@ impl TpmBackend {
             .map_err(|_| {
                 let _ = self.context.flush_context(obj_handle);
                 let _ = self.context.flush_context(SessionHandle::from(policy_auth).into());
-                VeilError::SealMismatch
+                HydeError::SealMismatch
             })?;
 
         // Switch to policy session for unseal
@@ -274,7 +274,7 @@ impl TpmBackend {
         let _ = self.context.flush_context(obj_handle);
         let _ = self.context.flush_context(SessionHandle::from(policy_auth).into());
 
-        let unsealed = unseal_result.map_err(|_| VeilError::SealMismatch)?;
+        let unsealed = unseal_result.map_err(|_| HydeError::SealMismatch)?;
         Ok(unsealed.to_vec())
     }
 
@@ -297,7 +297,7 @@ impl TpmBackend {
 
     /// Unseal a Data Key, dispatching based on the configured PCR policy.
     fn unseal_data_key(&mut self, key: &WrappedKey) -> Result<Vec<u8>> {
-        let parent = self.primary_handle.ok_or(VeilError::PrimaryKeyNotFound)?;
+        let parent = self.primary_handle.ok_or(HydeError::PrimaryKeyNotFound)?;
         let (private, public) = decode_sealed_blobs(&key.blob)?;
 
         match &self.pcr_policy {
@@ -330,7 +330,7 @@ impl TeeBackend for TpmBackend {
 
     fn initialize_primary_key(&mut self) -> Result<()> {
         let persistent_tpm_handle = PersistentTpmHandle::new(PERSISTENT_HANDLE_ADDR)
-            .map_err(|e| VeilError::Backend(Box::new(e)))?;
+            .map_err(|e| HydeError::Backend(Box::new(e)))?;
 
         // Try to load existing persistent handle
         let existing = self.context.execute_without_session(|ctx| {
@@ -383,14 +383,14 @@ impl TeeBackend for TpmBackend {
     }
 
     fn generate_data_key(&mut self) -> Result<WrappedKey> {
-        let parent = self.primary_handle.ok_or(VeilError::PrimaryKeyNotFound)?;
+        let parent = self.primary_handle.ok_or(HydeError::PrimaryKeyNotFound)?;
 
         // Generate 32 bytes of random data from the TPM as our Data Key
         let key_material = self.context.get_random(32).map_err(tpm_err)?;
         let key_bytes: Vec<u8> = key_material.to_vec();
 
         let sensitive = SensitiveData::try_from(key_bytes)
-            .map_err(|e| VeilError::Backend(Box::new(e)))?;
+            .map_err(|e| HydeError::Backend(Box::new(e)))?;
 
         // Choose template based on PCR policy
         let template = match &self.pcr_policy {
@@ -451,11 +451,11 @@ fn encode_sealed_blobs(private: &Private, public: &Public) -> Vec<u8> {
 
 fn decode_sealed_blobs(blob: &[u8]) -> Result<(Private, Public)> {
     if blob.len() < 4 {
-        return Err(VeilError::InvalidKey);
+        return Err(HydeError::InvalidKey);
     }
     let priv_len = u32::from_le_bytes(blob[..4].try_into().unwrap()) as usize;
     if blob.len() < 4 + priv_len {
-        return Err(VeilError::InvalidKey);
+        return Err(HydeError::InvalidKey);
     }
     let priv_bytes = &blob[4..4 + priv_len];
     let pub_bytes = &blob[4 + priv_len..];
@@ -474,13 +474,13 @@ fn aes_gcm_encrypt(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
     use aes_gcm::{aead::Aead, aead::OsRng, Aes256Gcm, AeadCore, KeyInit};
 
     let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| VeilError::Serialization(e.to_string()))?;
+        .map_err(|e| HydeError::Serialization(e.to_string()))?;
 
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
-        .map_err(|_| VeilError::SealMismatch)?;
+        .map_err(|_| HydeError::SealMismatch)?;
 
     // Output: [12 bytes nonce] [ciphertext + tag]
     let mut output = Vec::with_capacity(12 + ciphertext.len());
@@ -493,16 +493,16 @@ fn aes_gcm_decrypt(key: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
     use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 
     if sealed.len() < 12 {
-        return Err(VeilError::InvalidKey);
+        return Err(HydeError::InvalidKey);
     }
 
     let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| VeilError::Serialization(e.to_string()))?;
+        .map_err(|e| HydeError::Serialization(e.to_string()))?;
 
     let nonce = Nonce::from_slice(&sealed[..12]);
     let ciphertext = &sealed[12..];
 
     cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|_| VeilError::SealMismatch)
+        .map_err(|_| HydeError::SealMismatch)
 }

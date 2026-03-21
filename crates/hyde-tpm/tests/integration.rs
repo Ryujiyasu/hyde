@@ -1,7 +1,7 @@
-use veil_tee_core::backend::TeeBackend;
-use veil_tee_core::recovery::RecoveryStrategy;
-use veil_tee_core::PassphraseRecovery;
-use veil_tee_tpm::{PcrPolicy, TpmBackend};
+use hyde_core::backend::TeeBackend;
+use hyde_core::recovery::RecoveryStrategy;
+use hyde_core::PassphraseRecovery;
+use hyde_tpm::{PcrPolicy, TpmBackend};
 
 /// These tests require swtpm running on TCP port 2321:
 ///   swtpm socket --tpmstate dir=/tmp/swtpm \

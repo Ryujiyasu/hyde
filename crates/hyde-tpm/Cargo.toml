@@ -1,6 +1,6 @@
 [package]
-name = "veil-tee-tpm"
-description = "TPM 2.0 backend for veil"
+name = "hyde-tpm"
+description = "TPM 2.0 backend for Hyde"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ categories.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-veil-tee-core.workspace = true
+hyde-core.workspace = true
 tss-esapi.workspace = true
 zeroize.workspace = true
 tracing.workspace = true

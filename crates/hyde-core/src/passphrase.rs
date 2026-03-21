@@ -1,6 +1,6 @@
 use crate::{
     backend::{BackendType, WrappedKey},
-    error::{Result, VeilError},
+    error::{HydeError, Result},
     recovery::{BackupBundle, RecoveryStrategy, RecoveryType},
 };
 
@@ -8,7 +8,7 @@ use crate::{
 ///
 /// # Example
 /// ```ignore
-/// use veil::recovery::PassphraseRecovery;
+/// use hyde::recovery::PassphraseRecovery;
 ///
 /// let strategy = PassphraseRecovery;
 /// let backup = ctx.backup(&protected, &strategy, Some(b"my-passphrase"))?;
@@ -19,7 +19,7 @@ pub struct PassphraseRecovery;
 impl RecoveryStrategy for PassphraseRecovery {
     fn backup(&self, key: &WrappedKey, secret: Option<&[u8]>) -> Result<BackupBundle> {
         let passphrase = secret.ok_or_else(|| {
-            VeilError::RecoveryFailed("passphrase is required for PassphraseRecovery".into())
+            HydeError::RecoveryFailed("passphrase is required for PassphraseRecovery".into())
         })?;
 
         let mut derived = derive_key_from_passphrase(passphrase)?;
@@ -42,7 +42,7 @@ impl RecoveryStrategy for PassphraseRecovery {
 
     fn restore(&self, bundle: &BackupBundle, secret: &[u8]) -> Result<WrappedKey> {
         if bundle.data.len() < 16 + 12 + 16 {
-            return Err(VeilError::RecoveryFailed("backup too short".into()));
+            return Err(HydeError::RecoveryFailed("backup too short".into()));
         }
 
         let salt = &bundle.data[..16];
@@ -50,7 +50,7 @@ impl RecoveryStrategy for PassphraseRecovery {
 
         let mut derived = derive_key_with_salt(secret, salt)?;
         let blob = aes_gcm_decrypt(&derived.key, encrypted)
-            .map_err(|_| VeilError::RecoveryFailed("wrong passphrase or corrupted backup".into()));
+            .map_err(|_| HydeError::RecoveryFailed("wrong passphrase or corrupted backup".into()));
         zeroize::Zeroize::zeroize(&mut derived.key);
 
         Ok(WrappedKey {
@@ -72,13 +72,13 @@ pub(crate) fn aes_gcm_encrypt(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
     use aes_gcm::{aead::Aead, aead::OsRng, Aes256Gcm, AeadCore, KeyInit};
 
     let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| VeilError::Serialization(e.to_string()))?;
+        .map_err(|e| HydeError::Serialization(e.to_string()))?;
 
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
-        .map_err(|_| VeilError::SealMismatch)?;
+        .map_err(|_| HydeError::SealMismatch)?;
 
     let mut output = Vec::with_capacity(12 + ciphertext.len());
     output.extend_from_slice(&nonce);
@@ -90,18 +90,18 @@ pub(crate) fn aes_gcm_decrypt(key: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
     use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 
     if sealed.len() < 12 {
-        return Err(VeilError::InvalidKey);
+        return Err(HydeError::InvalidKey);
     }
 
     let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| VeilError::Serialization(e.to_string()))?;
+        .map_err(|e| HydeError::Serialization(e.to_string()))?;
 
     let nonce = Nonce::from_slice(&sealed[..12]);
     let ciphertext = &sealed[12..];
 
     cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|_| VeilError::SealMismatch)
+        .map_err(|_| HydeError::SealMismatch)
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ struct DerivedKey {
 fn derive_key_from_passphrase(passphrase: &[u8]) -> Result<DerivedKey> {
     let mut salt = [0u8; 16];
     getrandom::getrandom(&mut salt)
-        .map_err(|e| VeilError::RecoveryFailed(format!("random salt generation failed: {e}")))?;
+        .map_err(|e| HydeError::RecoveryFailed(format!("random salt generation failed: {e}")))?;
     derive_key_with_salt(passphrase, &salt)
 }
 
@@ -127,7 +127,7 @@ fn derive_key_with_salt(passphrase: &[u8], salt: &[u8]) -> Result<DerivedKey> {
     let argon2 = Argon2::default();
     argon2
         .hash_password_into(passphrase, salt, &mut key)
-        .map_err(|e| VeilError::RecoveryFailed(format!("key derivation failed: {e}")))?;
+        .map_err(|e| HydeError::RecoveryFailed(format!("key derivation failed: {e}")))?;
 
     let mut salt_arr = [0u8; 16];
     salt_arr.copy_from_slice(&salt[..16]);

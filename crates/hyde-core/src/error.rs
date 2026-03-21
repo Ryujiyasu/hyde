@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum VeilError {
+pub enum HydeError {
     #[error("Backend error: {0}")]
     Backend(Box<dyn std::error::Error + Send + Sync>),
 
@@ -24,4 +24,4 @@ pub enum VeilError {
     Serialization(String),
 }
 
-pub type Result<T> = std::result::Result<T, VeilError>;
+pub type Result<T> = std::result::Result<T, HydeError>;

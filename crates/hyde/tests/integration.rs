@@ -1,4 +1,4 @@
-use veil_tee::{auto_detect, FallbackPolicy, PassphraseRecovery, Protected};
+use hyde::{auto_detect, auto_detect_with_security, FallbackPolicy, PassphraseRecovery, Protected, SecurityLevel};
 
 /// These tests require swtpm running.
 /// Set env: TCTI="swtpm:host=127.0.0.1,port=2323"
@@ -26,7 +26,7 @@ fn test_protected_data_serialize_roundtrip() {
     assert!(!json.is_empty());
 
     // Deserialize back
-    let deserialized: veil_tee::ProtectedData = serde_json::from_str(&json).unwrap();
+    let deserialized: hyde::ProtectedData = serde_json::from_str(&json).unwrap();
 
     // Decrypt the deserialized data
     let recovered = ctx.unprotect(&deserialized).unwrap();
@@ -77,7 +77,7 @@ fn test_backup_bundle_serialize_roundtrip() {
 
     // BackupBundle should be serializable
     let json = serde_json::to_string(&bundle).unwrap();
-    let deserialized: veil_tee::BackupBundle = serde_json::from_str(&json).unwrap();
+    let deserialized: hyde::BackupBundle = serde_json::from_str(&json).unwrap();
 
     let restored = ctx
         .restore(&deserialized, &protected.ciphertext, &strategy, b"pass")
@@ -87,10 +87,10 @@ fn test_backup_bundle_serialize_roundtrip() {
 }
 
 // ---------------------------------------------------------------------------
-// #[veil_tee::protect] macro + Protected<T>
+// #[hyde::protect] macro + Protected<T>
 // ---------------------------------------------------------------------------
 
-#[veil_tee::protect]
+#[hyde::protect]
 struct DocumentKey {
     key_material: Vec<u8>,
     label: String,
@@ -132,7 +132,7 @@ fn test_protect_macro_serialize_roundtrip() {
     assert_eq!(recovered.label, "serializable");
 }
 
-#[veil_tee::protect(zeroize = false)]
+#[hyde::protect(zeroize = false)]
 struct NonZeroizedData {
     value: String,
 }
@@ -144,4 +144,110 @@ fn test_protect_macro_no_zeroize() {
     let protected = NonZeroizedData::protect(&mut ctx, "hello".to_string()).unwrap();
     let recovered: NonZeroizedData = protected.unprotect(&mut ctx).unwrap();
     assert_eq!(recovered.value, "hello");
+}
+
+// ---------------------------------------------------------------------------
+// SecurityLevel tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_security_level_paranoid_default() {
+    let ctx = auto_detect(FallbackPolicy::Deny).unwrap();
+    assert_eq!(ctx.security_level(), SecurityLevel::Paranoid);
+}
+
+#[test]
+fn test_security_level_standard_cached_unprotect() {
+    let mut ctx = auto_detect_with_security(
+        FallbackPolicy::Deny,
+        SecurityLevel::standard(),
+    )
+    .unwrap();
+
+    let secret = b"cached-standard-secret";
+    let protected = ctx.protect(secret).unwrap();
+
+    // First call: cache miss, hits TPM
+    let r1 = ctx.unprotect(&protected).unwrap();
+    assert_eq!(r1, secret);
+
+    // Second call: cache hit, no TPM round-trip
+    let r2 = ctx.unprotect(&protected).unwrap();
+    assert_eq!(r2, secret);
+}
+
+#[test]
+fn test_security_level_performance_cached_unprotect() {
+    let mut ctx = auto_detect_with_security(
+        FallbackPolicy::Deny,
+        SecurityLevel::performance(),
+    )
+    .unwrap();
+
+    let secret = b"cached-performance-secret";
+    let protected = ctx.protect(secret).unwrap();
+
+    let r1 = ctx.unprotect(&protected).unwrap();
+    assert_eq!(r1, secret);
+
+    // Second call: plaintext cache hit
+    let r2 = ctx.unprotect(&protected).unwrap();
+    assert_eq!(r2, secret);
+}
+
+#[test]
+fn test_security_level_flush_cache() {
+    let mut ctx = auto_detect_with_security(
+        FallbackPolicy::Deny,
+        SecurityLevel::performance(),
+    )
+    .unwrap();
+
+    let secret = b"flush-me";
+    let protected = ctx.protect(secret).unwrap();
+
+    // Populate cache
+    let _ = ctx.unprotect(&protected).unwrap();
+
+    // Flush and verify still works (re-fetches from TPM)
+    ctx.flush_cache();
+    let recovered = ctx.unprotect(&protected).unwrap();
+    assert_eq!(recovered, secret);
+}
+
+#[test]
+fn test_security_level_override_with_paranoid() {
+    let mut ctx = auto_detect_with_security(
+        FallbackPolicy::Deny,
+        SecurityLevel::performance(),
+    )
+    .unwrap();
+
+    let secret = b"override-test";
+    let protected = ctx.protect(secret).unwrap();
+
+    // Use paranoid override — skips cache entirely
+    let recovered = ctx.unprotect_with(&protected, SecurityLevel::Paranoid).unwrap();
+    assert_eq!(recovered, secret);
+}
+
+#[test]
+fn test_security_level_change_flushes_cache() {
+    let mut ctx = auto_detect_with_security(
+        FallbackPolicy::Deny,
+        SecurityLevel::performance(),
+    )
+    .unwrap();
+
+    let secret = b"level-change";
+    let protected = ctx.protect(secret).unwrap();
+    let _ = ctx.unprotect(&protected).unwrap();
+
+    // Change level — should flush cache
+    ctx.set_security_level(SecurityLevel::Paranoid);
+    assert_eq!(ctx.security_level(), SecurityLevel::Paranoid);
+
+    // Still works (hits TPM directly)
+    let recovered = ctx.unprotect(&protected).unwrap();
+    assert_eq!(recovered, secret);
 }

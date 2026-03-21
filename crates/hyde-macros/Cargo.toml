@@ -1,6 +1,6 @@
 [package]
-name = "veil-tee-software"
-description = "Software-only fallback backend for veil (stub)"
+name = "hyde-macros"
+description = "Procedural macros for Hyde (#[hyde::protect])"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,10 @@ keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
 
+[lib]
+proc-macro = true
+
 [dependencies]
-veil-tee-core.workspace = true
-tracing.workspace = true
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"

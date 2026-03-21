@@ -13,7 +13,7 @@ use syn::{parse_macro_input, DeriveInput, Fields, Meta, Expr, Lit};
 ///
 /// # Example
 /// ```ignore
-/// #[veil::protect]
+/// #[hyde::protect]
 /// struct DocumentKey {
 ///     key_material: [u8; 32],
 /// }
@@ -41,7 +41,7 @@ pub fn protect(attr: TokenStream, item: TokenStream) -> TokenStream {
             _ => {
                 return syn::Error::new_spanned(
                     &input.ident,
-                    "#[veil::protect] only supports structs with named fields",
+                    "#[hyde::protect] only supports structs with named fields",
                 )
                 .to_compile_error()
                 .into();
@@ -50,7 +50,7 @@ pub fn protect(attr: TokenStream, item: TokenStream) -> TokenStream {
         _ => {
             return syn::Error::new_spanned(
                 &input.ident,
-                "#[veil::protect] can only be applied to structs",
+                "#[hyde::protect] can only be applied to structs",
             )
             .to_compile_error()
             .into();
@@ -90,7 +90,7 @@ pub fn protect(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote! {}
     };
 
-    // Keep existing attributes (except our #[veil::protect])
+    // Keep existing attributes (except our #[hyde::protect])
     let existing_attrs: Vec<_> = input
         .attrs
         .iter()
@@ -107,14 +107,14 @@ pub fn protect(attr: TokenStream, item: TokenStream) -> TokenStream {
         impl #generics #name #generics {
             /// Protect this value using a TEE backend.
             ///
-            /// Serializes the struct, encrypts it via `VeilContext`, and returns
+            /// Serializes the struct, encrypts it via `HydeContext`, and returns
             /// a `Protected<Self>` that can only be decrypted with the same TEE.
             #vis fn protect(
-                ctx: &mut veil_tee_core::VeilContext,
+                ctx: &mut hyde_core::HydeContext,
                 #(#field_params),*
-            ) -> veil_tee_core::Result<veil_tee_core::Protected<Self>> {
+            ) -> hyde_core::Result<hyde_core::Protected<Self>> {
                 let value = Self { #(#field_names),* };
-                veil_tee_core::Protected::new(ctx, &value)
+                hyde_core::Protected::new(ctx, &value)
             }
         }
 

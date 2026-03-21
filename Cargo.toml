@@ -1,27 +1,27 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/veil",
-    "crates/veil-core",
-    "crates/veil-tpm",
-    "crates/veil-software",
-    "crates/veil-macros",
+    "crates/hyde",
+    "crates/hyde-core",
+    "crates/hyde-tpm",
+    "crates/hyde-software",
+    "crates/hyde-macros",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://gitlab.com/Ryujiyasu/veil"
+repository = "https://gitlab.com/Ryujiyasu/hyde"
 keywords = ["tee", "tpm", "encryption", "security", "hardware"]
 categories = ["cryptography", "hardware-support"]
 rust-version = "1.70"
 
 [workspace.dependencies]
-veil-tee-core = { path = "crates/veil-core", version = "0.1.0" }
-veil-tee-tpm = { path = "crates/veil-tpm", version = "0.1.0" }
-veil-tee-software = { path = "crates/veil-software", version = "0.1.0" }
-veil-tee-macros = { path = "crates/veil-macros", version = "0.1.0" }
+hyde-core = { path = "crates/hyde-core", version = "0.1.0" }
+hyde-tpm = { path = "crates/hyde-tpm", version = "0.1.0" }
+hyde-software = { path = "crates/hyde-software", version = "0.1.0" }
+hyde-macros = { path = "crates/hyde-macros", version = "0.1.0" }
 tss-esapi = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
