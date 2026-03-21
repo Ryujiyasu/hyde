@@ -1,18 +1,17 @@
-<p align="center">
-  <img src="docs/hyde-logo-square.png" alt="hyde logo" width="200">
-</p>
+<div align="center">
 
-<h1 align="center">hyde</h1>
+<img src="docs/hyde-logo-square.png" alt="hyde logo" width="200">
 
-<p align="center">
-  Unified abstraction layer for hardware-based Trusted Execution Environments (TEE) in Rust.<br>
-  ハードウェアTEEの統一抽象化レイヤー（Rust）
-</p>
+# hyde
 
-<p align="center">
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.70%2B-orange.svg" alt="Rust"></a>
-</p>
+Unified abstraction layer for hardware-based Trusted Execution Environments (TEE) in Rust.
+
+ハードウェアTEEの統一抽象化レイヤー（Rust）
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
+
+</div>
 
 ---
 
