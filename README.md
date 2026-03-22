@@ -189,7 +189,9 @@ cargo test --workspace -- --test-threads=1
 | **1** | TPM 2.0 (Windows 11 / Linux) | **In progress / 開発中** |
 | 2 | Intel TDX, AMD SEV-SNP (Cloud TEE) | Planned / 計画中 |
 | 3 | Apple Secure Enclave, ARM TrustZone (Mobile) | Planned / 計画中 |
-| 4 | oxi integration, Enterprise SaaS | Planned / 計画中 |
+| 4 | NVIDIA H100 Confidential Computing (GPU TEE) | Planned / 計画中 |
+| 5 | IoT Secure Elements (ATECC608, SE050, TrustZone-M) | Planned / 計画中 |
+| 6 | oxi integration, Enterprise SaaS | Planned / 計画中 |
 
 See [docs/hyde-roadmap.md](docs/hyde-roadmap.md) for details.
 
