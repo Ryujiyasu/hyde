@@ -1,5 +1,5 @@
 [package]
-name = "hyde"
+name = "hyde-tee"
 description = "Unified abstraction layer for hardware-based TEE in Rust"
 version.workspace = true
 edition.workspace = true

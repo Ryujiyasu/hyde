@@ -21,7 +21,7 @@ cache:
 
 check:
   stage: check
-  image: rust:1.70
+  image: rust:1.74
   before_script:
     - apt-get update -qq && apt-get install -y -qq libtss2-dev
     - rustup component add clippy rustfmt
@@ -36,7 +36,7 @@ check:
 
 test:
   stage: test
-  image: rust:1.70
+  image: rust:1.74
   services: []
   before_script:
     - apt-get update -qq

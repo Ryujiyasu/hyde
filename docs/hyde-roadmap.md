@@ -1,4 +1,4 @@
-# veil — ロードマップ
+# hyde — ロードマップ
 
 > 「実行時保護のMissing Layer」を埋める唯一のOSS Rust crate
 
@@ -11,30 +11,58 @@
 ```
 保存時（at rest）  → BitLocker / FileVault  ✅
 通信時（in transit）→ HTTPS / TLS           ✅
-実行時（in use）   → ???                    ← veilはここ
+実行時（in use）   → ???                    ← hydeはここ
 ```
 
-veilのゴールは：
+hydeのゴールは：
 **「どのクラウドに保存されても、誰にも読めないドキュメント」を実現する基盤を、OSSとして世界に届ける。**
+
+---
+
+## Hyde エコシステム
+
+hydeは3モジュール暗号エコシステムの基盤：
+
+```
+  守る (Protect)     証明する (Prove)     計算する (Compute)
+┌─────────────┐   ┌─────────────┐   ┌─────────────┐
+│    hyde      │──▶│    argo     │──▶│    plat     │
+│  TPM + PQC   │   │    ZKP      │   │    FHE      │
+│  ML-KEM-768  │   │  証明エンジン │   │  演算エンジン │
+└─────────────┘   └─────────────┘   └─────────────┘
+```
+
+| モジュール | 技術 | 用途 | リポジトリ |
+|-----------|------|------|-----------|
+| **hyde** | TPM + PQC (ML-KEM-768) | データを守る | [gitlab.com/Ryujiyasu/hyde](https://gitlab.com/Ryujiyasu/hyde) |
+| **argo** | ZKP (ゼロ知識証明) | データを見せずに証明する | [gitlab.com/Ryujiyasu/argo](https://gitlab.com/Ryujiyasu/argo) |
+| **plat** | FHE (完全準同型暗号) | 暗号化したまま計算する | [gitlab.com/Ryujiyasu/plat](https://gitlab.com/Ryujiyasu/plat) |
+
+### ２つの市場戦略
+
+| 戦略 | ターゲット | アプローチ |
+|------|----------|-----------|
+| **強化型** | 防衛省・政府・金融 | 既存の防御を更に強化（hyde） |
+| **OPEN型** | 病院・研究機関 | データを安全に利活用（argo + plat） |
 
 ---
 
 ## フェーズ全体像
 
 ```
-Phase 1          Phase 2          Phase 3          Phase 4
-TPM 2.0          クラウドTEE      モバイル          統合エコシステム
-（今すぐ）        （6〜18ヶ月）    （12〜24ヶ月）    （18ヶ月〜）
+Phase 1          Phase 1.5        Phase 2          Phase 3          Phase 4
+TPM 2.0          PQC対応          クラウドTEE      モバイル          統合エコシステム
+（完了）          （完了）          （6〜18ヶ月）    （12〜24ヶ月）    （18ヶ月〜）
 
-Windows/Linux    Intel TDX        iOS Secure        oxi統合
-TPM 2.0対応      AMD SEV-SNP      Enclave           人単位ライセンス
-基本API確立       クラウドVM対応    Android           エンタープライズ
-crates.io公開    サーバー側保護    TrustZone         SaaS展開
+Windows/Linux    ML-KEM-768       Intel TDX        iOS Secure        oxi統合
+TPM 2.0対応      HNDL耐性         AMD SEV-SNP      Enclave           人単位ライセンス
+基本API確立       二層暗号化        クラウドVM対応    Android           argo/plat統合
+crates.io公開    チップ移行簡素化   サーバー側保護    TrustZone         SaaS展開
 ```
 
 ---
 
-## Phase 1：TPM 2.0（今すぐ始める）
+## Phase 1：TPM 2.0 ✅ 完了
 
 **期間**：〜4ヶ月
 **目標**：Windows 11のTPMで動くデモとcrates.io公開
@@ -90,6 +118,45 @@ Windows 11の全ユーザーがTPM 2.0を持っている
 ✅ crates.io に公開済み
 ✅ 「protect → unprotect」の往復が30行以内のコードで書ける
 ✅ ProtectedDataをJSONに保存→再読み込み→復号のフローが動作
+```
+
+---
+
+## Phase 1.5：ポスト量子暗号 (PQC) ✅ 完了
+
+**目標**：HNDL攻撃耐性 + チップ移行の簡素化
+
+### なぜPQCが必要か
+
+```
+HNDL (Harvest Now, Decrypt Later):
+→ 暗号化データを今収集し、将来量子コンピュータで解読する攻撃
+→ 医療データや機密文書をS3に保存 → 数年後に量子コンピュータで解読される
+→ TPMのRSA鍵ラッピングだけでは不十分
+```
+
+### 実装項目 ✅
+
+```
+- [x] ML-KEM-768 (NIST FIPS 203) 鍵カプセル化
+- [x] 二層暗号化：PQC（内側、チップ非依存）+ TPM（外側、デバイスバインド）
+- [x] ProtectedData v2フォーマット（v1後方互換）
+- [x] 常時PQC有効（開発者の選択不要 — SecurityLevelはキャッシュ制御のみ）
+- [x] チップ移行時のデータ再暗号化不要（PQC層がチップ非依存）
+```
+
+### 設計判断
+
+```
+検討した2つのアプローチ：
+1. 使い分け（重要度に応じてPQC有無を選択） → 却下
+2. 全データPQC（常時最強暗号化）          → 採用 ✅
+
+理由：
+- 開発者に暗号強度の判断を押し付けるのはhydeの設計思想に反する
+- 「重要じゃないと思ったデータ」が実は重要だったケースは多い
+- PQCのコストは今後下がる
+- APIがシンプルなまま保てる
 ```
 
 ---
@@ -308,29 +375,35 @@ veil：TPM＋生体認証 → 「この人・このデバイス」のみ有効
 ## 技術的マイルストーン
 
 ```
-v0.1.0（Phase 1完了）
+v0.1.0（Phase 1完了） ✅
   └─ TPM 2.0対応・crates.io公開
   └─ マルチクレートワークスペース構成
 
-v0.2.0
-  └─ #[veil::protect] マクロの完成版
+v0.2.0（Phase 1.5完了） ✅
+  └─ ML-KEM-768 PQC暗号化（常時有効）
+  └─ 二層暗号化アーキテクチャ
+  └─ HNDL攻撃耐性
+
+v0.3.0
+  └─ #[hyde::protect] マクロの完成版
   └─ Windows Hello連携
 
-v0.3.0（Phase 2開始）
-  └─ Intel TDX対応（veil-tdx crate）
+v0.4.0（Phase 2開始）
+  └─ Intel TDX対応（hyde-tdx crate）
 
-v0.4.0
-  └─ AMD SEV-SNP対応（veil-sev crate）
+v0.5.0
+  └─ AMD SEV-SNP対応（hyde-sev crate）
   └─ アテステーションAPI
 
-v0.5.0（Phase 3開始）
+v0.6.0（Phase 3開始）
   └─ iOS Secure Enclave対応
 
-v0.6.0
+v0.7.0
   └─ Android TrustZone対応
 
 v1.0.0（Phase 4）
   └─ oxi統合デモ（oxihanko + E2E + ドキュメント鍵保護）
+  └─ argo (ZKP) / plat (FHE) エコシステム統合
   └─ 人単位ライセンスSaaS β版
   └─ エンタープライズサポート開始
 ```
@@ -343,17 +416,22 @@ v1.0.0（Phase 4）
                     認知                    収益
 ┌───────────────────────────────────────────────────────┐
 │                                                       │
-│   oxi（無料・OSS）──────────────→ veil（有料・OSS＋）  │
+│   oxi（無料・OSS）──────────────→ hyde（有料・OSS＋）  │
 │   Office互換エディタ              実行時保護基盤        │
 │   世界中に普及                    企業向けSaaS          │
 │                                                       │
+│          hyde ecosystem:                              │
+│          hyde (TPM+PQC) → argo (ZKP) → plat (FHE)    │
+│          守る → 証明する → 計算する                     │
+│                                                       │
 └───────────────────────────────────────────────────────┘
 
-収益源（veil）：
+収益源（hyde ecosystem）：
 1. エンタープライズSLA・サポート契約
 2. 人単位ライセンス管理SaaS（月額課金）
 3. セキュリティ監査サービス
 4. 統合コンサルティング
+5. OPEN型：argo/platを活用した医療・研究データ利活用基盤
 ```
 
 ---

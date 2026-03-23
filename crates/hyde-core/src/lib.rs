@@ -3,6 +3,7 @@ pub(crate) mod cache;
 pub mod context;
 pub mod error;
 pub mod passphrase;
+pub mod pqc;
 pub mod protected;
 pub mod recovery;
 pub mod security_level;

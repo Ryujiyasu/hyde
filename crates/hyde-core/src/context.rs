@@ -1,7 +1,8 @@
 use crate::{
     backend::{TeeBackend, WrappedKey},
     cache::SecureCache,
-    error::Result,
+    error::{HydeError, Result},
+    pqc::{self, PqcKeypair},
     recovery::{BackupBundle, RecoveryStrategy},
     security_level::SecurityLevel,
 };
@@ -12,6 +13,7 @@ pub struct HydeContext {
     backend: Box<dyn TeeBackend>,
     security_level: SecurityLevel,
     cache: Option<SecureCache>,
+    pqc_keypair: PqcKeypair,
 }
 
 #[derive(Debug, Clone)]
@@ -44,22 +46,33 @@ impl HydeContext {
             None
         };
 
+        let pqc_keypair = PqcKeypair::generate();
+
         Ok(Self {
             backend,
             security_level,
             cache,
+            pqc_keypair,
         })
     }
 
-    /// Protect data by generating a Data Key, encrypting, and wrapping.
-    /// The returned `ProtectedData` can be serialized and stored anywhere.
+    /// Protect data with TPM + ML-KEM-768 post-quantum encryption.
+    ///
+    /// The data is first encrypted with ML-KEM (quantum-resistant, chip-independent),
+    /// then sealed by the TPM (device-binding). Both layers are always applied.
     pub fn protect(&mut self, data: &[u8]) -> Result<ProtectedData> {
+        // Layer 1: PQC encryption (chip-independent, quantum-resistant)
+        let (kem_ciphertext, pqc_ciphertext) = pqc::pqc_encrypt(&self.pqc_keypair.ek, data)?;
+
+        // Layer 2: TPM seal (device-binding)
         let key = self.backend.generate_data_key()?;
-        let ciphertext = self.backend.seal(&key, data)?;
+        let ciphertext = self.backend.seal(&key, &pqc_ciphertext)?;
+
         Ok(ProtectedData {
             key,
             ciphertext,
-            version: 1,
+            kem_ciphertext: Some(kem_ciphertext),
+            version: 2,
         })
     }
 
@@ -84,77 +97,57 @@ impl HydeContext {
         protected: &ProtectedData,
         level: SecurityLevel,
     ) -> Result<Vec<u8>> {
-        match level {
+        let inner = match level {
             SecurityLevel::Paranoid => {
                 // Always hit the TEE — no caching
-                self.backend.unseal(&protected.key, &protected.ciphertext)
+                self.backend.unseal(&protected.key, &protected.ciphertext)?
             }
-            SecurityLevel::Standard { ttl } => self.unprotect_standard(protected, ttl),
-            SecurityLevel::Performance { ttl } => self.unprotect_performance(protected, ttl),
+            SecurityLevel::Standard { ttl } => self.unprotect_cached(protected, ttl)?,
+            SecurityLevel::Performance { ttl } => self.unprotect_cached(protected, ttl)?,
+        };
+
+        // Apply PQC decryption for v2 data
+        self.finalize_unprotect(protected, inner)
+    }
+
+    /// Post-process unsealed data: apply PQC decryption for v2, pass through for v1.
+    fn finalize_unprotect(&self, protected: &ProtectedData, inner: Vec<u8>) -> Result<Vec<u8>> {
+        match protected.version {
+            2 => {
+                let kem_ct = protected
+                    .kem_ciphertext
+                    .as_ref()
+                    .ok_or(HydeError::InvalidKey)?;
+                pqc::pqc_decrypt(&self.pqc_keypair.dk, kem_ct, &inner)
+            }
+            _ => Ok(inner), // v1 legacy: inner is already plaintext
         }
     }
 
-    fn unprotect_standard(
+    fn unprotect_cached(
         &mut self,
         protected: &ProtectedData,
         ttl: std::time::Duration,
     ) -> Result<Vec<u8>> {
         let cache = self.cache.get_or_insert_with(SecureCache::new);
 
-        // Check data key cache
-        if let Some(data_key) = cache.get_data_key(&protected.key.blob) {
-            // Cache hit — decrypt with cached data key (skip TPM unseal)
-            let result = crate::passphrase::aes_gcm_decrypt(&data_key, &protected.ciphertext);
-            return result;
+        // Check cache (stores TPM-unsealed result, before PQC decryption)
+        if let Some(cached) = cache.get_plaintext(&protected.key.blob, &protected.ciphertext) {
+            return Ok(cached);
         }
 
         // Cache miss — full TEE round-trip
-        let plaintext = self.backend.unseal(&protected.key, &protected.ciphertext)?;
+        let inner = self.backend.unseal(&protected.key, &protected.ciphertext)?;
 
-        // Extract and cache the data key for future calls.
-        // We need to unseal the data key separately to cache it.
-        // The backend.unseal() already does unseal+decrypt internally,
-        // so we need to get just the data key. We'll re-seal a known value
-        // to extract the key... Actually, the simpler approach: we call the
-        // backend's internal unseal, which gives us plaintext. We can't
-        // extract the data key without changing the TeeBackend trait.
-        //
-        // For now, cache the plaintext result keyed by (blob + ciphertext).
-        // This gives us the same performance benefit for repeated reads.
+        // Cache the TPM-unsealed result
         cache.insert_plaintext(
             &protected.key.blob,
             &protected.ciphertext,
-            plaintext.clone(),
+            inner.clone(),
             ttl,
         );
 
-        Ok(plaintext)
-    }
-
-    fn unprotect_performance(
-        &mut self,
-        protected: &ProtectedData,
-        ttl: std::time::Duration,
-    ) -> Result<Vec<u8>> {
-        let cache = self.cache.get_or_insert_with(SecureCache::new);
-
-        // Check plaintext cache first
-        if let Some(plaintext) = cache.get_plaintext(&protected.key.blob, &protected.ciphertext) {
-            return Ok(plaintext);
-        }
-
-        // Cache miss — full TEE round-trip
-        let plaintext = self.backend.unseal(&protected.key, &protected.ciphertext)?;
-
-        // Cache the plaintext
-        cache.insert_plaintext(
-            &protected.key.blob,
-            &protected.ciphertext,
-            plaintext.clone(),
-            ttl,
-        );
-
-        Ok(plaintext)
+        Ok(inner)
     }
 
     /// Drop all cached keys and plaintext from memory (triggers zeroize).
@@ -203,6 +196,7 @@ impl HydeContext {
         Ok(ProtectedData {
             key,
             ciphertext: ciphertext.to_vec(),
+            kem_ciphertext: None,
             version: 1,
         })
     }
@@ -214,5 +208,8 @@ impl HydeContext {
 pub struct ProtectedData {
     key: WrappedKey,
     pub ciphertext: Vec<u8>,
+    /// ML-KEM-768 ciphertext for PQC layer (v2+). None for legacy v1 data.
+    #[serde(default)]
+    kem_ciphertext: Option<Vec<u8>>,
     version: u8,
 }

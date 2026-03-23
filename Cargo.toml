@@ -18,7 +18,7 @@ license = "MIT"
 repository = "https://gitlab.com/Ryujiyasu/hyde"
 keywords = ["tee", "tpm", "encryption", "security", "hardware"]
 categories = ["cryptography", "hardware-support"]
-rust-version = "1.70"
+rust-version = "1.74"
 
 [workspace.dependencies]
 hyde-core = { path = "crates/hyde-core", version = "0.1.0" }

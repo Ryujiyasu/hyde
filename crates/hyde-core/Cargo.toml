@@ -19,6 +19,7 @@ aes-gcm = "0.10"
 argon2 = "0.5"
 getrandom = "0.2"
 sha2 = "0.10"
+ml-kem = { version = "0.2.3", features = ["zeroize"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
