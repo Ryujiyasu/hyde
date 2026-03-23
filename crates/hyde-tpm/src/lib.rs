@@ -1,6 +1,10 @@
+use hyde_core::{
+    backend::{BackendType, TeeBackend, WrappedKey},
+    error::{HydeError, Result},
+};
 use tss_esapi::{
-    constants::{SessionType, StartupType},
     attributes::{ObjectAttributesBuilder, SessionAttributesBuilder},
+    constants::{SessionType, StartupType},
     handles::{KeyHandle, PersistentTpmHandle, SessionHandle, TpmHandle},
     interface_types::{
         algorithm::HashingAlgorithm,
@@ -9,17 +13,13 @@ use tss_esapi::{
         session_handles::{AuthSession, PolicySession},
     },
     structures::{
-        Digest, KeyedHashScheme, PcrSelectionList, PcrSlot, Private, Public,
-        PublicBuilder, PublicKeyedHashParameters, RsaExponent, SensitiveData,
-        SymmetricDefinition, SymmetricDefinitionObject,
+        Digest, KeyedHashScheme, PcrSelectionList, PcrSlot, Private, Public, PublicBuilder,
+        PublicKeyedHashParameters, RsaExponent, SensitiveData, SymmetricDefinition,
+        SymmetricDefinitionObject,
     },
     tcti_ldr::TctiNameConf,
     traits::{Marshall, UnMarshall},
     utils, Context,
-};
-use hyde_core::{
-    backend::{BackendType, TeeBackend, WrappedKey},
-    error::{HydeError, Result},
 };
 
 /// Persistent handle address for Hyde's Primary Key: 0x81000001
@@ -132,9 +132,7 @@ fn sealed_object_template() -> Public {
         .with_public_algorithm(tss_esapi::interface_types::algorithm::PublicAlgorithm::KeyedHash)
         .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
         .with_object_attributes(attrs)
-        .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
-            KeyedHashScheme::Null,
-        ))
+        .with_keyed_hash_parameters(PublicKeyedHashParameters::new(KeyedHashScheme::Null))
         .with_keyed_hash_unique_identifier(Default::default())
         .build()
         .expect("sealed object template")
@@ -157,9 +155,7 @@ fn sealed_object_template_with_policy(policy_digest: &Digest) -> Public {
         .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
         .with_object_attributes(attrs)
         .with_auth_policy(policy_digest.clone())
-        .with_keyed_hash_parameters(PublicKeyedHashParameters::new(
-            KeyedHashScheme::Null,
-        ))
+        .with_keyed_hash_parameters(PublicKeyedHashParameters::new(KeyedHashScheme::Null))
         .with_keyed_hash_unique_identifier(Default::default())
         .build()
         .expect("sealed object template with policy")
@@ -191,9 +187,7 @@ impl TpmBackend {
             .map_err(tpm_err)?
             .ok_or_else(|| HydeError::Backend("failed to create trial session".into()))?;
 
-        let policy_session: PolicySession = trial_session
-            .try_into()
-            .map_err(tpm_err)?;
+        let policy_session: PolicySession = trial_session.try_into().map_err(tpm_err)?;
 
         let pcr_selection = build_pcr_selection(slots)?;
 
@@ -243,9 +237,7 @@ impl TpmBackend {
             .map_err(tpm_err)?
             .ok_or_else(|| HydeError::Backend("failed to create policy session".into()))?;
 
-        let policy_session: PolicySession = policy_auth
-            .try_into()
-            .map_err(tpm_err)?;
+        let policy_session: PolicySession = policy_auth.try_into().map_err(tpm_err)?;
 
         let pcr_selection = build_pcr_selection(slots)?;
 
@@ -256,13 +248,14 @@ impl TpmBackend {
             .policy_pcr(policy_session, Digest::default(), pcr_selection)
             .map_err(|_| {
                 let _ = self.context.flush_context(obj_handle);
-                let _ = self.context.flush_context(SessionHandle::from(policy_auth).into());
+                let _ = self
+                    .context
+                    .flush_context(SessionHandle::from(policy_auth).into());
                 HydeError::SealMismatch
             })?;
 
         // Switch to policy session for unseal
-        self.context
-            .set_sessions((Some(policy_auth), None, None));
+        self.context.set_sessions((Some(policy_auth), None, None));
 
         let unseal_result = self.context.unseal(obj_handle);
 
@@ -272,7 +265,9 @@ impl TpmBackend {
 
         // Clean up
         let _ = self.context.flush_context(obj_handle);
-        let _ = self.context.flush_context(SessionHandle::from(policy_auth).into());
+        let _ = self
+            .context
+            .flush_context(SessionHandle::from(policy_auth).into());
 
         let unsealed = unseal_result.map_err(|_| HydeError::SealMismatch)?;
         Ok(unsealed.to_vec())
@@ -340,7 +335,10 @@ impl TeeBackend for TpmBackend {
         match existing {
             Ok(obj_handle) => {
                 self.primary_handle = Some(KeyHandle::from(obj_handle));
-                tracing::info!("Loaded existing primary key from 0x{:08X}", PERSISTENT_HANDLE_ADDR);
+                tracing::info!(
+                    "Loaded existing primary key from 0x{:08X}",
+                    PERSISTENT_HANDLE_ADDR
+                );
                 Ok(())
             }
             Err(_) => {
@@ -348,15 +346,23 @@ impl TeeBackend for TpmBackend {
 
                 let result = self
                     .context
-                    .create_primary(Hierarchy::Owner, primary_key_template(), None, None, None, None)
+                    .create_primary(
+                        Hierarchy::Owner,
+                        primary_key_template(),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
                     .map_err(tpm_err)?;
 
                 let transient_handle = result.key_handle;
 
                 // Persist it
-                let persistent = tss_esapi::interface_types::dynamic_handles::Persistent::Persistent(
-                    persistent_tpm_handle,
-                );
+                let persistent =
+                    tss_esapi::interface_types::dynamic_handles::Persistent::Persistent(
+                        persistent_tpm_handle,
+                    );
                 self.context
                     .evict_control(
                         tss_esapi::interface_types::resource_handles::Provision::Owner,
@@ -371,9 +377,12 @@ impl TeeBackend for TpmBackend {
                     .map_err(tpm_err)?;
 
                 // Load the persistent handle
-                let obj_handle = self.context.execute_without_session(|ctx| {
-                    ctx.tr_from_tpm_public(TpmHandle::Persistent(persistent_tpm_handle))
-                }).map_err(tpm_err)?;
+                let obj_handle = self
+                    .context
+                    .execute_without_session(|ctx| {
+                        ctx.tr_from_tpm_public(TpmHandle::Persistent(persistent_tpm_handle))
+                    })
+                    .map_err(tpm_err)?;
 
                 self.primary_handle = Some(KeyHandle::from(obj_handle));
                 tracing::info!("Primary key persisted at 0x{:08X}", PERSISTENT_HANDLE_ADDR);
@@ -389,8 +398,8 @@ impl TeeBackend for TpmBackend {
         let key_material = self.context.get_random(32).map_err(tpm_err)?;
         let key_bytes: Vec<u8> = key_material.to_vec();
 
-        let sensitive = SensitiveData::try_from(key_bytes)
-            .map_err(|e| HydeError::Backend(Box::new(e)))?;
+        let sensitive =
+            SensitiveData::try_from(key_bytes).map_err(|e| HydeError::Backend(Box::new(e)))?;
 
         // Choose template based on PCR policy
         let template = match &self.pcr_policy {
@@ -471,10 +480,10 @@ fn decode_sealed_blobs(blob: &[u8]) -> Result<(Private, Public)> {
 // ---------------------------------------------------------------------------
 
 fn aes_gcm_encrypt(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
-    use aes_gcm::{aead::Aead, aead::OsRng, Aes256Gcm, AeadCore, KeyInit};
+    use aes_gcm::{aead::Aead, aead::OsRng, AeadCore, Aes256Gcm, KeyInit};
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HydeError::Serialization(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HydeError::Serialization(e.to_string()))?;
 
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
@@ -496,8 +505,8 @@ fn aes_gcm_decrypt(key: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
         return Err(HydeError::InvalidKey);
     }
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HydeError::Serialization(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HydeError::Serialization(e.to_string()))?;
 
     let nonce = Nonce::from_slice(&sealed[..12]);
     let ciphertext = &sealed[12..];

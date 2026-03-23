@@ -23,8 +23,8 @@ pub struct Protected<T> {
 impl<T: Serialize + DeserializeOwned> Protected<T> {
     /// Protect a value by serializing it and encrypting with the TEE.
     pub fn new(ctx: &mut HydeContext, value: &T) -> Result<Self> {
-        let bytes = serde_json::to_vec(value)
-            .map_err(|e| HydeError::Serialization(e.to_string()))?;
+        let bytes =
+            serde_json::to_vec(value).map_err(|e| HydeError::Serialization(e.to_string()))?;
         let data = ctx.protect(&bytes)?;
         Ok(Self {
             data,
@@ -35,8 +35,7 @@ impl<T: Serialize + DeserializeOwned> Protected<T> {
     /// Decrypt and deserialize the protected value. Requires the same TEE.
     pub fn unprotect(&self, ctx: &mut HydeContext) -> Result<T> {
         let bytes = ctx.unprotect(&self.data)?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| HydeError::Serialization(e.to_string()))
+        serde_json::from_slice(&bytes).map_err(|e| HydeError::Serialization(e.to_string()))
     }
 
     /// Access the underlying `ProtectedData` for backup/restore operations.

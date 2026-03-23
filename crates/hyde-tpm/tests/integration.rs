@@ -62,18 +62,14 @@ fn test_seal_unseal_roundtrip() {
     let wrapped = backend.generate_data_key().unwrap();
 
     let plaintext = b"this is my secret document key!!";
-    let sealed = backend
-        .seal(&wrapped, plaintext)
-        .expect("Failed to seal");
+    let sealed = backend.seal(&wrapped, plaintext).expect("Failed to seal");
 
     // Sealed data should be different from plaintext
     assert_ne!(sealed, plaintext);
     // Should contain nonce (12) + ciphertext + tag (16)
     assert!(sealed.len() > 12 + 16);
 
-    let recovered = backend
-        .unseal(&wrapped, &sealed)
-        .expect("Failed to unseal");
+    let recovered = backend.unseal(&wrapped, &sealed).expect("Failed to unseal");
 
     assert_eq!(recovered, plaintext);
 }
@@ -161,7 +157,9 @@ fn test_passphrase_wrong_passphrase_fails() {
     let wrapped = backend.generate_data_key().unwrap();
     let strategy = PassphraseRecovery;
 
-    let bundle = strategy.backup(&wrapped, Some(b"correct-password")).unwrap();
+    let bundle = strategy
+        .backup(&wrapped, Some(b"correct-password"))
+        .unwrap();
 
     let result = strategy.restore(&bundle, b"wrong-password");
     assert!(result.is_err());
@@ -253,5 +251,8 @@ fn test_pcr_cross_policy_incompatible() {
 
     // PCR-bound key with no-PCR backend should fail (needs policy session but uses HMAC)
     let result = backend_no_pcr.unseal(&key_pcr, &sealed_pcr);
-    assert!(result.is_err(), "PCR-bound key should not unseal without policy session");
+    assert!(
+        result.is_err(),
+        "PCR-bound key should not unseal without policy session"
+    );
 }

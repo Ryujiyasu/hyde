@@ -1,12 +1,15 @@
-use hyde::{auto_detect, auto_detect_with_security, FallbackPolicy, PassphraseRecovery, Protected, SecurityLevel};
+use hyde::{
+    auto_detect, auto_detect_with_security, FallbackPolicy, PassphraseRecovery, Protected,
+    SecurityLevel,
+};
 
 /// These tests require swtpm running.
 /// Set env: TCTI="swtpm:host=127.0.0.1,port=2323"
 
 #[test]
 fn test_auto_detect_with_tpm() {
-    let mut ctx = auto_detect(FallbackPolicy::Deny)
-        .expect("auto_detect failed — is swtpm running?");
+    let mut ctx =
+        auto_detect(FallbackPolicy::Deny).expect("auto_detect failed — is swtpm running?");
 
     let secret = b"auto-detect integration test secret";
     let protected = ctx.protect(secret).unwrap();
@@ -100,12 +103,8 @@ struct DocumentKey {
 fn test_protect_macro_roundtrip() {
     let mut ctx = auto_detect(FallbackPolicy::Deny).unwrap();
 
-    let protected = DocumentKey::protect(
-        &mut ctx,
-        vec![0xDE, 0xAD, 0xBE, 0xEF],
-        "my-key".to_string(),
-    )
-    .unwrap();
+    let protected =
+        DocumentKey::protect(&mut ctx, vec![0xDE, 0xAD, 0xBE, 0xEF], "my-key".to_string()).unwrap();
 
     let recovered: DocumentKey = protected.unprotect(&mut ctx).unwrap();
     assert_eq!(recovered.key_material, vec![0xDE, 0xAD, 0xBE, 0xEF]);
@@ -116,12 +115,8 @@ fn test_protect_macro_roundtrip() {
 fn test_protect_macro_serialize_roundtrip() {
     let mut ctx = auto_detect(FallbackPolicy::Deny).unwrap();
 
-    let protected = DocumentKey::protect(
-        &mut ctx,
-        vec![1, 2, 3],
-        "serializable".to_string(),
-    )
-    .unwrap();
+    let protected =
+        DocumentKey::protect(&mut ctx, vec![1, 2, 3], "serializable".to_string()).unwrap();
 
     // Protected<T> is serializable
     let json = serde_json::to_string(&protected).unwrap();
@@ -158,11 +153,8 @@ fn test_security_level_paranoid_default() {
 
 #[test]
 fn test_security_level_standard_cached_unprotect() {
-    let mut ctx = auto_detect_with_security(
-        FallbackPolicy::Deny,
-        SecurityLevel::standard(),
-    )
-    .unwrap();
+    let mut ctx =
+        auto_detect_with_security(FallbackPolicy::Deny, SecurityLevel::standard()).unwrap();
 
     let secret = b"cached-standard-secret";
     let protected = ctx.protect(secret).unwrap();
@@ -178,11 +170,8 @@ fn test_security_level_standard_cached_unprotect() {
 
 #[test]
 fn test_security_level_performance_cached_unprotect() {
-    let mut ctx = auto_detect_with_security(
-        FallbackPolicy::Deny,
-        SecurityLevel::performance(),
-    )
-    .unwrap();
+    let mut ctx =
+        auto_detect_with_security(FallbackPolicy::Deny, SecurityLevel::performance()).unwrap();
 
     let secret = b"cached-performance-secret";
     let protected = ctx.protect(secret).unwrap();
@@ -197,11 +186,8 @@ fn test_security_level_performance_cached_unprotect() {
 
 #[test]
 fn test_security_level_flush_cache() {
-    let mut ctx = auto_detect_with_security(
-        FallbackPolicy::Deny,
-        SecurityLevel::performance(),
-    )
-    .unwrap();
+    let mut ctx =
+        auto_detect_with_security(FallbackPolicy::Deny, SecurityLevel::performance()).unwrap();
 
     let secret = b"flush-me";
     let protected = ctx.protect(secret).unwrap();
@@ -217,27 +203,23 @@ fn test_security_level_flush_cache() {
 
 #[test]
 fn test_security_level_override_with_paranoid() {
-    let mut ctx = auto_detect_with_security(
-        FallbackPolicy::Deny,
-        SecurityLevel::performance(),
-    )
-    .unwrap();
+    let mut ctx =
+        auto_detect_with_security(FallbackPolicy::Deny, SecurityLevel::performance()).unwrap();
 
     let secret = b"override-test";
     let protected = ctx.protect(secret).unwrap();
 
     // Use paranoid override — skips cache entirely
-    let recovered = ctx.unprotect_with(&protected, SecurityLevel::Paranoid).unwrap();
+    let recovered = ctx
+        .unprotect_with(&protected, SecurityLevel::Paranoid)
+        .unwrap();
     assert_eq!(recovered, secret);
 }
 
 #[test]
 fn test_security_level_change_flushes_cache() {
-    let mut ctx = auto_detect_with_security(
-        FallbackPolicy::Deny,
-        SecurityLevel::performance(),
-    )
-    .unwrap();
+    let mut ctx =
+        auto_detect_with_security(FallbackPolicy::Deny, SecurityLevel::performance()).unwrap();
 
     let secret = b"level-change";
     let protected = ctx.protect(secret).unwrap();

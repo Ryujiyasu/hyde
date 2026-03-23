@@ -69,10 +69,10 @@ impl RecoveryStrategy for PassphraseRecovery {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn aes_gcm_encrypt(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
-    use aes_gcm::{aead::Aead, aead::OsRng, Aes256Gcm, AeadCore, KeyInit};
+    use aes_gcm::{aead::Aead, aead::OsRng, AeadCore, Aes256Gcm, KeyInit};
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HydeError::Serialization(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HydeError::Serialization(e.to_string()))?;
 
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
@@ -93,8 +93,8 @@ pub(crate) fn aes_gcm_decrypt(key: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
         return Err(HydeError::InvalidKey);
     }
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HydeError::Serialization(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HydeError::Serialization(e.to_string()))?;
 
     let nonce = Nonce::from_slice(&sealed[..12]);
     let ciphertext = &sealed[12..];

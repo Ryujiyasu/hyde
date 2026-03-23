@@ -1,7 +1,4 @@
-use crate::{
-    backend::WrappedKey,
-    error::Result,
-};
+use crate::{backend::WrappedKey, error::Result};
 use serde::{Deserialize, Serialize};
 
 /// Identifies the recovery method used for a backup.

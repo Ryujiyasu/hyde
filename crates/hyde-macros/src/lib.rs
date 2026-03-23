@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Fields, Meta, Expr, Lit};
+use syn::{parse_macro_input, DeriveInput, Expr, Fields, Lit, Meta};
 
 /// Attribute macro that makes a struct protectable by a TEE.
 ///

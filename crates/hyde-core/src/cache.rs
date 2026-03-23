@@ -73,10 +73,7 @@ fn mlock_buffer(buf: &[u8]) -> bool {
         return true;
     }
     unsafe {
-        windows_sys::Win32::System::Memory::VirtualLock(
-            buf.as_ptr() as *mut _,
-            buf.len(),
-        ) != 0
+        windows_sys::Win32::System::Memory::VirtualLock(buf.as_ptr() as *mut _, buf.len()) != 0
     }
 }
 
@@ -84,10 +81,7 @@ fn mlock_buffer(buf: &[u8]) -> bool {
 fn munlock_buffer(buf: &[u8]) {
     if !buf.is_empty() {
         unsafe {
-            windows_sys::Win32::System::Memory::VirtualUnlock(
-                buf.as_ptr() as *mut _,
-                buf.len(),
-            );
+            windows_sys::Win32::System::Memory::VirtualUnlock(buf.as_ptr() as *mut _, buf.len());
         }
     }
 }
@@ -156,7 +150,12 @@ impl SecureCache {
     }
 
     /// Cache a data key.
-    pub(crate) fn insert_data_key(&mut self, wrapped_key_blob: &[u8], data_key: Vec<u8>, ttl: Duration) {
+    pub(crate) fn insert_data_key(
+        &mut self,
+        wrapped_key_blob: &[u8],
+        data_key: Vec<u8>,
+        ttl: Duration,
+    ) {
         let key = cache_key(wrapped_key_blob);
         self.data_keys.insert(
             key,

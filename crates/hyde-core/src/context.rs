@@ -89,12 +89,8 @@ impl HydeContext {
                 // Always hit the TEE — no caching
                 self.backend.unseal(&protected.key, &protected.ciphertext)
             }
-            SecurityLevel::Standard { ttl } => {
-                self.unprotect_standard(protected, ttl)
-            }
-            SecurityLevel::Performance { ttl } => {
-                self.unprotect_performance(protected, ttl)
-            }
+            SecurityLevel::Standard { ttl } => self.unprotect_standard(protected, ttl),
+            SecurityLevel::Performance { ttl } => self.unprotect_performance(protected, ttl),
         }
     }
 
