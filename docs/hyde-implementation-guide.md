@@ -891,11 +891,1055 @@ Phase 2（将来）：
 
 ---
 
+## BitLocker設計研究 — 20年の実戦から学んだ設計パターン
+
+hydeの鍵管理設計はBitLockerの20年の歴史から直接学んでいる。BitLockerは数十億台のWindowsデバイスで稼働する、最も実戦検証されたTPMベースの暗号化システムである。
+
+一次資料：
+- [MS-FVE仕様](https://github.com/libyal/libbde/blob/main/documentation/BitLocker%20Drive%20Encryption%20(BDE)%20format.asciidoc)
+- [TPM-based BitLocker Deep Dive](https://itm4n.github.io/tpm-based-bitlocker/)
+- [BitLocker SPI Sniffing Attack](https://labs.withsecure.com/publications/sniff-there-leaks-my-bitlocker-key)
+
+### BitLockerの鍵階層
+
+```
+[Key Protectors] ── 複数同時に存在可能
+  ├── TPM Protector        → VMKをunseal
+  ├── Numerical Password   → VMKをunseal  ← リカバリキー（48桁）
+  └── Passphrase           → VMKをunseal
+
+        ↓ どれか1つでOK
+
+     VMK (Volume Master Key, 256bit, ディスク上に暗号化保存)
+        ↓
+     FVEK (Full Volume Encryption Key, 実データ暗号化鍵)
+        ↓
+     データ本体
+```
+
+### hydeとBitLockerの設計対応表
+
+| BitLocker | hyde | 設計意図 |
+|---|---|---|
+| VMK (Volume Master Key) | dk (decapsulation key) | 重い鍵は1デバイスに1つ。長期保持 |
+| FVEK (Full Volume Encryption Key) | DataKey (per protect call) | 軽い鍵は毎回生成。Forward Secrecyをほぼゼロコストで実現 |
+| Key Protector (複数共存) | `RecoveryStrategy` trait | 同一マスター鍵を複数の保護手段で守る。差し替え可能 |
+| NVRAMに鍵を入れない | 1 NV slot for Primary Key | TPM NVは容量制限あり。BitLockerもディスク上のメタデータに暗号化保存 |
+| VMK re-wrap (ローテーション) | dk re-seal (PQCチップ移行) | マスター鍵のre-sealのみ。データの再暗号化は不要 |
+
+### 核心的な学び
+
+#### 1. 鍵はTPM NVに入れない
+
+BitLockerはTPM NVRAMにデータを保存できるが、**実際の鍵はディスク上のFVEメタデータブロックに暗号化された状態で保存される**。hydeのOption A（ディスク+TPMシール）はBitLockerと同じ設計判断。NVに直接入れる選択肢は15年前に否定済み。
+
+- ML-KEM-768のdecap_keyは2400bytes — TPM NVに入れると容量を圧迫
+- NV直接保存はTPM故障時にデータ永久喪失のリスク
+
+#### 2. Key Protectorの複数共存がリカバリの本質
+
+BitLockerでは各VMKコピーが異なるアクセス方法で暗号化されており、TPM・テキストパスワード・リカバリキーの**どれか1つ**でデータにアクセスできる。hydeの`RecoveryStrategy`トレイトはこの設計の直接的な模倣。
+
+```rust
+// hyde の RecoveryStrategy = BitLocker の Key Protector
+let strategy = PassphraseRecovery;           // ← Passphrase Protector相当
+let bundle = ctx.backup(&protected, &strategy, Some(b"passphrase"))?;
+// 将来: RecoveryKey, ShamirRecovery    // ← Numerical Password, etc.相当
+```
+
+#### 3. VMKローテーション = データ再暗号化不要
+
+BitLockerではProtectorが侵害された場合、**新しいVMKを生成してFVEKを再暗号化するだけ**でよく、ボリューム全体の再暗号化は不要。hydeも同じ：
+
+```
+dk ローテーション時:
+  旧dk → 破棄
+  新dk → 既存DataKeyを新dkで再暗号化
+  データ本体 → 一切触らない
+```
+
+PQCチップ移行時も同様。dkが1個なのでre-seal操作は1回で完了。
+
+#### 4. コスト構造：「重い操作」と「軽い操作」の分離
+
+```
+protect() 1回あたりのコスト:
+
+[重い操作 — 初回のみ]
+  ML-KEM encapsulate  : 数ms（ソフトウェア）
+  TPM seal            : 数十ms〜100ms
+
+[ほぼゼロ — 毎回]
+  AES-256 DataKey生成 : マイクロ秒オーダー
+  AES-256-GCM暗号化   : ほぼゼロ
+```
+
+BitLockerが15年以上この「重い鍵は一度だけ、軽い鍵で毎回」パターンを使い続けている理由がここにある。
+
+#### 5. PCR Policy — PCR 11相当の設計が今後必要
+
+BitLockerのSecure Boot有効時のデフォルト検証プロファイルは**PCR 7とPCR 11**。
+
+- PCR 7: Secure Boot状態
+- PCR 11: Windows Boot Managerのみがシールを解除できることを保証
+
+hydeが現在PCR 0+7を使っている場合、PCR 11相当の「アプリケーション固有のシール解除制御」の概念が欠けている可能性がある。Phase 2（TDX/SEV-SNP）ではこの制御が本質的になる。
+
+### PQCチップ移行シナリオ
+
+```
+現在（ソフトウェアPQC + TPM）:
+  data → [ML-KEM-768(SW)] → [TPM AES-256-GCM] → blob
+            Layer1               Layer2
+
+PQCチップ移行後:
+  data → [ML-KEM-X(HW)] → [PQCチップ seal] → blob
+            Layer1              Layer2
+
+移行プロセス:
+  1. 旧TPMでdkをunseal
+  2. 新PQCチップでdkをre-seal
+  3. データ本体は一切触らない（re-sealは1回で完了）
+```
+
+移行後にdkの保護がPQCチップベースになっても、Layer1の旧ML-KEM-768暗号文はそのまま有効。データの「二重PQC」はセキュリティ上むしろ多層防御として機能し、パフォーマンスへの影響もdkのunwrap 1回分のみ。
+
+### 一次資料から学んだ脆弱性と対策
+
+#### 発見: 「鍵はTPMに入っていない」という誤解の修正
+
+> "There is a common misconception that the BitLocker keys are stored in the TPM. Although data can be pushed to the NVRAM of the TPM, the keys are actually stored encrypted in metadata blocks on the BitLocker-protected drive itself."
+
+hydeのOption A（ディスク+TPMシール）はBitLockerと完全に同じ設計判断であり、15年前から正解はこれである。
+
+#### 発見: re-keyingの設計根拠
+
+> "This architecture allows an easy way of re-keying the system if any of the protectors are compromised, since only a new VMK needs to be generated and the FVEK re-encrypted with the new VMK. This mechanism eliminates the requirement to re-encrypt the entire volume."
+
+hydeの`ctx.rotate_key()`設計の根拠がここにある：
+
+```rust
+// PQCチップ移行時のre-keying
+ctx.rotate_key()?;
+// 内部動作：
+//   1. 新しいdk生成
+//   2. 全DataKeyを新dkでre-seal
+//   3. データ本体は一切触らない
+```
+
+#### 発見: SPIバス盗聴攻撃 — TPM-onlyの致命的弱点
+
+WithSecureの一次資料がTPM-onlyモードの致命的な弱点を実証している：
+
+```
+攻撃に必要なもの：
+  - ロジックアナライザー（$300〜$1000）
+  - ノートPCの裏蓋を外す物理アクセス（1分以内）
+
+攻撃手順：
+  1. SPIバスにプローブを接続
+  2. 起動時のTPM通信をキャプチャ
+  3. unsealコマンドのレスポンスからVMK（= hydeのdk）が平文で取れる
+
+結果：dkが取れる → 全DataKey復号可能 → 全データ復号
+```
+
+**TPM + PINの場合はなぜ安全か：**
+
+```
+TPM-only の場合：
+  TPMデータ → unseal → VMK (平文) ← SPIバスで取れる
+
+TPM + PIN の場合：
+  TPMデータ = AES-CCM暗号化されたKey Protector (KP)
+  KPの復号鍵 = SHA256(PIN × 0x100000回 + Salt)
+             ↑ PINなしでは計算不可
+  KP → 復号 → VMK
+```
+
+TPM + PINでは、TPMから出てくるデータ自体がさらにPINで暗号化されている。SPIバスで傍受しても生のVMKは取れない。
+
+#### hydeへの設計示唆: PersonBindingレイヤー
+
+READMEには「特定のデバイス＋**特定の人物**に紐付けて保護する」と記載しているが、TPM-onlyでは「特定の人物」バインディングは実質ゼロである。
+
+```rust
+// 現在（TPM-only、人物バインディングなし）
+let mut ctx = hyde::auto_detect(FallbackPolicy::Deny)?;
+let protected = ctx.protect(secret)?;
+
+// 提案（TPM + PIN、人物バインディングあり）
+let mut ctx = hyde::auto_detect(FallbackPolicy::Deny)?
+    .with_person_binding(PersonBinding::Pin)?;
+
+let protected = ctx.protect(secret)?;
+// → dkはTPMシール + PIN層でラップされる
+```
+
+PersonBindingの選択肢：
+
+| 方式 | セキュリティ | UX | 実装難易度 |
+|---|---|---|---|
+| **PIN** | ◎ SPI傍受耐性あり | △ 毎回入力 | ○ BitLockerと同じパターン |
+| **Passphrase** | ◎ | △ | ○ RecoveryStrategyに近い設計がある |
+| **FIDO2/Passkey** | ◎◎ | ○ | △ Phase 2以降で価値大 |
+| **なし（現在）** | △ SPI傍受で終わり | ◎ | — |
+
+BitLockerはTPM-onlyをデフォルトにしており批判されている。hydeはPersonBinding必須をデフォルトにすることで差別化できる — READMEの「特定の人物」という主張を設計レベルで証明する。
+
+注意: fTPM（CPU内蔵TPM）の場合はSPIバス自体が存在しないため、この攻撃は成立しない。ただしfTPMにはfTPM固有の脆弱性（電圧グリッチ攻撃等）が報告されており、PersonBindingは依然として多層防御として有効。
+
+### 深掘り1: fTPM（CPU内蔵TPM）の攻撃面
+
+#### dTPM vs fTPMのアーキテクチャ
+
+```
+dTPM（外付けチップ）:
+  CPU ──SPI/LPCバス──→ TPMチップ（外部）
+         ↑ここを盗聴できる
+
+fTPM（CPU内蔵）:
+  CPU内部でTPM機能が動く
+  外部バスが存在しない → SPI傍受が原理的に不可能
+```
+
+#### fTPMは完全に安全か？ — faulTPM攻撃
+
+**ノー。** 2023年にTU Berlinが「faulTPM」攻撃を発表。AMDのZen2/Zen3搭載CPUに対して、約$200の機材で電圧フォルト注入攻撃を行い、fTPM内のBitLocker鍵を完全に取得することに成功した。ただし攻撃には**数時間の物理アクセス**が必要。
+
+| TPM種別 | SPI傍受 | faulTPM | 必要な攻撃難易度 |
+|---|---|---|---|
+| dTPM（外付け） | ✅ 可能・$300・10分 | — | **低** |
+| fTPM（CPU内蔵） | ❌ 不可能 | ✅ 可能・$200・数時間 | **中** |
+| fTPM + PIN | ❌ | △ PINも破る必要あり | **高** |
+
+#### hydeへの示唆
+
+```rust
+// hydeのauto_detect()が将来できるべきこと
+auto_detect() → {
+    if fTPM → SPI傍受リスクなし、PINなしでも中程度のセキュリティ
+    if dTPM → SPI傍受リスクあり、PIN必須と警告を出す
+}
+```
+
+fTPMはバス盗聴攻撃を回避できるが、それ自体の攻撃面（電圧グリッチ）も持つ。TPM種別を検出してPIN要否を警告する設計が理想。
+
+### 深掘り2: Suspendedモード（Clear Key問題）
+
+#### BitLockerの設計上の「穴」
+
+Suspendedモードはデータを復号するのではなく、**データを復号するための鍵をClear Key（平文）としてディスク上に保存する**。Suspend後に書き込まれる新しいデータは引き続き暗号化されるが、既存データへの鍵が平文でディスクに乗る。
+
+```
+通常時：
+  VMK → TPMシール → blob（復号にTPM必須）
+
+Suspended時：
+  VMK → Clear Key → ディスク上に平文で存在
+         ↑ TPMなしで誰でも読める
+```
+
+#### いつSuspendedになるか
+
+MicrosoftのWindowsアップデートでは自動的にBitLockerをSuspendしないが、TPMファームウェアの更新やUEFI/BIOSの変更など、サードパーティのソフトウェア更新時は手動でSuspendが必要になる場合がある。2025年10月にも、セキュリティアップデート後にBitLockerリカバリ画面が表示されるケースが報告されている。
+
+#### hydeの構造的優位性
+
+**hydeにはSuspendedモードが構造上存在しない。** これはhydeの設計上の強み。
+
+```
+BitLocker：ボリューム全体を暗号化 → 一時的にClear Key必要
+hyde：ファイル単位で暗号化 → Suspendの概念がない
+      protect()/unprotect()は常にTPM+PQC経由
+```
+
+ただしhydeにも類似リスクがある — `unprotect()`後のメモリ上の平文：
+
+```rust
+// unprotect()後のメモリ上の平文
+let secret = ctx.unprotect(&protected)?;
+// この瞬間、secretはRAM上に平文で存在
+// → メモリダンプ攻撃に対して無防備
+
+// 対策：zeroize crateでスコープアウト時に即消去
+use zeroize::Zeroizing;
+let secret = Zeroizing::new(ctx.unprotect(&protected)?);
+// スコープを抜けると自動的にゼロ埋め
+```
+
+#### 深掘りまとめ
+
+| テーマ | BitLockerの知見 | hydeへの示唆 |
+|---|---|---|
+| fTPM | dTPMはSPI傍受$300・10分で破れる。fTPMは数時間・$200のfaulTPM攻撃 | `auto_detect()`でTPM種別を検出しPIN要否を警告 |
+| Suspendedモード | BIOS更新時などにClear Keyがディスクに平文で乗る | hydeにはSuspendがない→構造的強み。ただし`unprotect()`後のRAM平文は`zeroize`で対処 |
+
+### 論点1の最終結論
+
+```
+dk の保管設計 ← 確定
+
+[保管場所]      ディスク + TPMシール        ← BitLockerと同じ、正解
+[dk の数]       1デバイス1鍵               ← PQCチップ移行コスト最小
+[DataKey]       protect()ごとに生成         ← Forward Secrecy、ゼロコスト
+[rotate]        ctx.rotate_key()           ← BitLockerのre-keying模倣
+[弱点]          TPM-only = SPI傍受脆弱     ← PersonBindingで緩和
+[人物バインド]  PersonBinding::Pin/Passphrase ← READMEの主張を設計で証明
+```
+
+---
+
+## 論点2: PCR Policy × クラウドAdmin脅威
+
+### 核心
+
+**PCRポリシーはブート改ざんを検出する仕組みであって、クラウドAdminのメモリアクセスを防ぐ仕組みではない。**
+
+### PCRが守れるもの・守れないもの
+
+```
+PCRが守れるもの（ブート整合性）
+  ├── ディスクの差し替え
+  ├── ブートローダーの改ざん
+  └── Secure Boot設定の変更
+
+PCRが守れないもの（実行時攻撃）
+  ├── OSが動いている間のメモリダンプ     ← クラウドAdmin
+  ├── ハイパーバイザーからのVM停止→スナップショット
+  ├── DMA攻撃（PCIe経由のメモリ直読み）
+  └── ルートキット（OS起動後に侵入）
+```
+
+### クラウドAdminの攻撃を具体的に図解
+
+```
+[クラウド環境]
+
+物理サーバー
+  └── ハイパーバイザー（クラウドAdmin管理下）
+        └── VM（ユーザーのワークロード）
+              └── hyde が動いている
+
+攻撃手順：
+  1. AdminがVMを一時停止
+  2. メモリスナップショットを取得
+  3. unprotect()後の平文データがRAMにある場合→取得完了
+  4. VMを再開（ユーザーは気づかない）
+```
+
+PCRはブート時のハッシュなので、VM起動後にAdminが操作しても値は変わらない。つまり**PCRポリシーはこの攻撃に対して完全に無力**。
+
+### Phase 2のTDX/SEV-SNPが解決する
+
+AzureのドキュメントにはIntel TDXについてこう記載されている：
+
+> ハイパーバイザー、その他のホスト管理コード、および管理者がVMのメモリと状態にアクセスすることを拒否します。
+
+TDX/SEV-SNPはハードウェアレベルでメモリを暗号化し、ハイパーバイザー自身も中身を読めない設計。
+
+```
+TDX/SEV-SNPが守れるもの
+  ├── ハイパーバイザーからのメモリアクセス ← クラウドAdmin
+  ├── 他VMからのアクセス
+  └── スナップショット攻撃（暗号化されているので読めない）
+```
+
+### hydeのロードマップとの対応
+
+```
+Phase 1（現在）: TPM 2.0
+  → ブート整合性 ◎
+  → クラウドAdmin ✗  ← PCRでは防げない
+
+Phase 2（計画中）: Intel TDX / AMD SEV-SNP
+  → ブート整合性 ◎
+  → クラウドAdmin ◎  ← ハードウェアメモリ暗号化で防ぐ
+```
+
+READMEの「クラウドAdmin」という脅威は、Phase 1では正直に言うと守れていない。Phase 2のTDX/SEV-SNPが入って初めて主張が完全に成立する。
+
+### READMEで修正すべき点
+
+現在の記述：
+
+> hydeはTPMを使い、秘密情報を「特定のデバイス＋特定の人物」に紐付けて保護する。クラウドに保存されても、その人物・そのデバイスなしには復号できない。
+
+より正確な記述：
+
+> - **Phase 1（TPM）**: ディスク盗難・物理攻撃から守る。クラウドAdmin脅威はPhase 2以降。
+> - **Phase 2（TDX/SEV-SNP）**: クラウドAdmin含む実行時攻撃から守る。
+
+---
+
+## 全体まとめ
+
+### 論点1（鍵の保管設計）
+
+```
+✅ ディスク + TPMシール = BitLockerと同じ正解
+✅ DataKeyは毎回生成 = Forward Secrecy
+✅ dkは1デバイス1鍵 = PQCチップ移行コスト最小
+⚠️  TPM-only = SPI傍受脆弱 → PIN/Passphraseで緩和
+⚠️  fTPM = SPI不可だがfaulTPM攻撃あり
+```
+
+### 論点2（PCR Policy × クラウドAdmin）
+
+```
+✅ PCR = ブート整合性の検出に有効
+❌ PCR = クラウドAdminのメモリアクセスには無力
+🔮 Phase 2のTDX/SEV-SNPで初めてクラウドAdminを撃退できる
+→ READMEのPhase別の守備範囲を明確化すべき
+```
+
+### 論点3（#[hyde::protect] マクロと Protected<T> の設計）
+
+```
+✅ Deref自動展開は採用しない — 暗黙の復号は設計思想に矛盾
+✅ 明示的ctx渡し — 権限の明示化、現在の設計が正しい
+✅ Zeroizing統合 — unprotect()の戻り値をZeroizing<T>にして平文寿命を制御
+✅ with_unprotected() — スコープ限定APIで平文の寿命をコンパイラが保証
+❌ ctxをグローバルシングルトンにしない — テスト困難、マルチスレッドで詰まる
+❌ ctxを構造体フィールドに持たない — 「誰がいつ復号できるか」の制御が消える
+```
+
+---
+
+## 論点3: #[hyde::protect] マクロと Protected<T> の設計
+
+### 核心の緊張関係
+
+```
+Ergonomics（使いやすさ）
+  └── Protected<T>をDerefで自動展開したい
+        record.diagnosis  // 自動でunprotect
+
+Security（安全性）
+  └── unprotectは明示的であるべき
+        ctx.unprotect(&record)?  // 意図を持って復号
+```
+
+### Derefを実装した場合に何が起きるか
+
+```rust
+// Derefありの危険な世界
+impl<T> Deref for Protected<T> {
+    type Target = T;
+    fn deref(&self) -> &T { /* 暗黙のunprotect */ }
+}
+
+// 呼び出し側は何も考えなくてよい
+println!("{}", record.diagnosis);  // ← TPMアクセスが暗黙に発生
+                                   // ← エラーハンドリング不能（Derefは Result を返せない）
+                                   // ← いつ復号されたか不明
+                                   // ← zeroizeのタイミング制御不能
+```
+
+4つの問題が同時に発生する。hydeの設計思想と完全に矛盾するため、**Derefは採用しない**。
+
+### 明示的設計の強化ポイント
+
+#### 強化1: Zeroizingとの統合
+
+```rust
+use zeroize::Zeroizing;
+
+impl<T: Zeroize> Protected<T> {
+    pub fn unprotect(&self, ctx: &mut HydeContext) -> hyde::Result<Zeroizing<T>> {
+        let plain = /* TPM + PQC復号 */;
+        Ok(Zeroizing::new(plain))
+    }
+    //  ↑ スコープを抜けると自動ゼロ埋め
+    //    平文がRAMに残るリスクを最小化
+}
+
+// 使う側
+{
+    let plain = record.unprotect(&mut ctx)?;
+    process(plain.diagnosis);
+}  // ← ここでdiagnosisがゼロ埋め
+```
+
+#### 強化2: スコープ限定API（with_unprotected）
+
+```rust
+impl<T: Zeroize> Protected<T> {
+    /// withブロック内だけ平文にアクセス可能
+    pub fn with_unprotected<F, R>(
+        &self,
+        ctx: &mut HydeContext,
+        f: F,
+    ) -> hyde::Result<R>
+    where
+        F: FnOnce(&T) -> R,
+    {
+        let plain = Zeroizing::new(self.unprotect_inner(ctx)?);
+        Ok(f(&plain))
+    }
+}
+
+// 使う側
+record.with_unprotected(&mut ctx, |data| {
+    send_to_doctor(data.diagnosis.clone())
+})?;
+// ← ブロックを抜けると即座にゼロ埋め
+// ← 平文の寿命がコンパイラで保証される
+```
+
+#### 強化3: HydeContextの取得設計
+
+```rust
+// ❌ グローバルシングルトン
+static CTX: Mutex<HydeContext> = ...;
+// → テスト困難、マルチスレッドで詰まる
+
+// ❌ 構造体フィールドに持つ
+struct Service { ctx: HydeContext }
+// → Serviceがどこでも復号できてしまう
+//   「誰がいつ復号できるか」の制御が消える
+
+// ✅ unprotect時に引数として渡す（現在の設計）
+record.unprotect(&mut ctx)?
+// → ctxを持っているスコープだけが復号可能
+//   権限の明示化
+
+// ✅✅ + with_unprotectedで寿命も制御
+record.with_unprotected(&mut ctx, |data| { ... })?
+```
+
+### マクロが生成すべきもの
+
+```rust
+#[hyde::protect]
+struct MedicalRecord {
+    patient_id: u64,
+    diagnosis: String,
+}
+
+// マクロが自動生成するもの:
+// 1. impl hyde::Protectable for MedicalRecord {}
+// 2. Protected<MedicalRecord> に以下のメソッド:
+//    - protect(&self, ctx) -> Protected<MedicalRecord>
+//    - unprotect(&self, ctx) -> Zeroizing<MedicalRecord>
+//    - with_unprotected(&self, ctx, f) -> R
+// 3. Derefは生やさない（コンパイルエラーで守る）
+// 4. Drop時にZeroize（平文のメモリ残留を防ぐ）
+```
+
+### 論点3 深掘り: HydeContextの生存期間とDecryptPermitパターン
+
+`with_unprotected`を実装したとして、次の問いが出る — TPMセッションの確立は重い操作（数十〜100ms）であり、毎回張るのはパフォーマンス的に問題になりうる。
+
+#### パターンA: リクエストごとに生成
+
+```rust
+async fn handle_request(record: Protected<MedicalRecord>) {
+    let ctx = hyde::auto_detect(FallbackPolicy::Deny)?;  // 毎回TPMセッション確立
+    record.with_unprotected(&mut ctx, |data| {
+        process(data)
+    })?;
+}
+// ✅ シンプル、テスト容易
+// ❌ パフォーマンス問題（毎回数十〜100ms）
+```
+
+#### パターンB: アプリ起動時に1回生成、共有
+
+```rust
+// 起動時
+let ctx: Arc<Mutex<HydeContext>> = Arc::new(Mutex::new(
+    hyde::auto_detect(FallbackPolicy::Deny)?
+));
+
+// 各所で
+let mut ctx = ctx.lock().unwrap();
+record.with_unprotected(&mut ctx, |data| { ... })?;
+// ✅ パフォーマンス良好
+// ❌ Mutexのロック競合
+// ❌ ctxが広いスコープに存在する = 誰でも復号できてしまう
+```
+
+#### パターンC: DecryptPermit — Rustの型システムで「復号権限」を表現
+
+```rust
+/// 復号権限トークン（一時的に発行される）
+/// MutexGuardやRwLockReadGuardと同じ「一時的権限トークン」パターン
+pub struct DecryptPermit<'a> {
+    ctx: &'a mut HydeContext,
+    // lifetime で有効期間をコンパイラが保証
+}
+
+impl HydeContext {
+    /// permitスコープ内だけ複数のunprotectが可能
+    /// TPMセッションは1回、permit発行時のみ
+    pub fn with_permit<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(DecryptPermit<'_>) -> R
+    {
+        f(DecryptPermit { ctx: self })
+    }
+}
+
+impl<T: Zeroize> Protected<T> {
+    pub fn unprotect(&self, permit: &DecryptPermit<'_>) -> hyde::Result<Zeroizing<T>> {
+        // permitが存在する = 復号権限がある
+        // permitのlifetimeが終わる = 復号権限が消える
+        todo!()
+    }
+}
+
+// 使う側
+ctx.with_permit(|permit| {
+    let a = record_a.unprotect(&permit)?;
+    let b = record_b.unprotect(&permit)?;
+    // permitのスコープ内だけ複数のunprotectが可能
+    process(&a, &b)
+})?;
+// ← スコープ外ではunprotect不能
+// ← TPMセッションは1回
+// ← lifetimeでコンパイラが強制
+```
+
+#### パターン比較
+
+| パターン | パフォーマンス | 安全性 | Rust的 |
+|---|---|---|---|
+| A: 毎回生成 | ❌ 毎回100ms | ✅ スコープ明確 | △ |
+| B: Arc\<Mutex\> | ✅ セッション1回 | ❌ 誰でも復号可能 | △ |
+| **C: DecryptPermit** | **✅ セッション1回** | **✅ lifetime保証** | **◎ MutexGuardと同じ発想** |
+
+DecryptPermitパターンは、Rustの標準ライブラリが15年かけて洗練させた「一時的権限トークン」パターンをhydeに適用するもの。パフォーマンスと安全性を両立できる唯一の選択肢。
+
+#### なぜパターンBを採用すべきでないか
+
+```rust
+// Arc<Mutex<HydeContext>>の問題
+let ctx = Arc::clone(&global_ctx);
+let mut ctx = ctx.lock().unwrap();
+
+// → ctxが取れれば誰でもどこでも復号できる
+// → 権限の境界が消える
+// → BitLockerがTPM-onlyで陥った問題と同じ構造
+//   「鍵は安全だが、使える人間が多すぎる」
+```
+
+### 実装戦略: CをベースにAで始める
+
+**Phase 1（今すぐ・v0.1〜v0.2）: パターンA**
+
+```rust
+// シンプルに始める。過剰設計より動くものが優先。
+let mut ctx = hyde::auto_detect(FallbackPolicy::Deny)?;
+let plain = record.unprotect(&mut ctx)?;
+```
+
+**Phase 2（パフォーマンス問題が出たら）: パターンC**
+
+```rust
+ctx.with_permit(|permit| {
+    let a = record_a.unprotect(&permit)?;
+    let b = record_b.unprotect(&permit)?;
+    process(a, b)
+})?;
+```
+
+DecryptPermitの本質的メリット3つ：
+
+1. **TPMセッションが1回で済む** — permit発行=セッション確立（重い・1回）、unprotect=セッション再利用（軽い・n回）、permit消滅=セッション終了
+2. **「誰がいつ復号できるか」をコンパイラが強制** — permitを持っていないスコープではunprotect不能=コンパイルエラー
+3. **監査ログの挿入点が明確** — `with_permit`のスコープだけ見ればいい
+
+### 論点3の完全な設計図
+
+```
+#[hyde::protect] マクロが生成するもの
+
+Protected<T>
+  ├── protect(data, ctx) → Protected<T>    // 暗号化
+  ├── unprotect(ctx) → Zeroizing<T>        // 復号（明示的）
+  ├── with_unprotected(ctx, f) → R         // スコープ限定復号
+  └── Derefなし                            // 暗黙の復号を禁止
+
+HydeContext
+  └── with_permit(f) → R                  // Phase 2で追加
+        └── DecryptPermit<'_>
+              └── lifetime でコンパイラが寿命を保証
+
+Zeroizing<T>
+  └── スコープアウトで自動ゼロ埋め        // RAMに平文を残さない
+```
+
+### 論点3の結論
+
+「安全側に倒した設計を、Rustのコンパイラに強制させる」— これがhydeのマクロが目指すべき方向。BitLockerが15年かけてOSレベルで解いた問題を、Rustの型システムで解く。これがhydeの差別化になる。
+
+---
+
+## 論点4: FallbackPolicyと運用現実
+
+### 問題の構造
+
+```
+GitHub Actions / GitLab CI
+  └── VM上で動く
+        └── TPMなし or vTPM（セキュリティ保証なし）
+              └── FallbackPolicy::Deny → エラー
+                    └── テストが全部落ちる
+```
+
+### テストの3層構造と問題の所在
+
+```
+Layer 3: 統合テスト（swtpm必須）
+  → 現在動いている ✅
+  → --test-threads=1 が必要（TPMはシリアル）
+  → CI時間が長い
+
+Layer 2: ユニットテスト（TPM不要なはず）
+  → PQC暗号化ロジック
+  → シリアライズ/デシリアライズ
+  → RecoveryStrategyの計算
+  → しかしHydeContextが絡むと全部swtpm必要に ⚠️
+
+Layer 1: プロパティテスト（純粋関数）
+  → ML-KEM鍵生成・暗号化・復号
+  → Argon2idのKDF計算
+  → TPM完全不要 ✅
+```
+
+**問題の核心：Layer 2がLayer 3に汚染されている。**
+
+### FallbackPolicyの設計上の欠陥
+
+```rust
+// 現在の2択
+FallbackPolicy::Deny   // 本番用
+FallbackPolicy::Allow  // テスト用？
+
+// Allowの危険性
+let ctx = hyde::auto_detect(FallbackPolicy::Allow)?;
+// → TPMなし環境でSoftwareBackendが使われる
+// → テストは通る
+// → しかしSoftwareBackendはセキュリティゼロ
+// → 本番でAllowを誤って使ったら？
+//   → サイレントにセキュリティが劣化
+//   → エラーも警告も出ない
+```
+
+これはBitLockerのSuspendedモード問題と同じ構造 — セキュリティが無声で劣化する。
+
+### 解決策：FallbackPolicyに3つ目を追加
+
+```rust
+pub enum FallbackPolicy {
+    /// 本番用: TPMなし → エラー
+    Deny,
+
+    /// テスト用: TPMなし → SoftwareBackend
+    /// ただしBackendKindが強制的にSoftwareになる
+    /// → ctx.backend_kind()で検出可能
+    AllowForTesting,
+
+    /// 廃止予定: Allowは使わせない
+    // Allow,  ← 削除
+}
+```
+
+そして`BackendKind`を公開APIに追加：
+
+```rust
+pub enum BackendKind {
+    Tpm,            // 本物のTPM
+    SoftwareOnly,   // テスト用フォールバック
+}
+
+impl HydeContext {
+    pub fn backend_kind(&self) -> BackendKind { ... }
+}
+
+// 本番コードでの防御
+let ctx = hyde::auto_detect(FallbackPolicy::AllowForTesting)?;
+assert_eq!(
+    ctx.backend_kind(),
+    BackendKind::Tpm,
+    "本番環境ではTPMが必須です"
+);
+```
+
+### GitLab CIの構成改善案
+
+現在の構成：
+
+```yaml
+test:
+  script:
+    - swtpm socket ... --daemon
+    - export TCTI="swtpm:..."
+    - cargo test --workspace -- --test-threads=1
+```
+
+改善案 — テストを3層に分離：
+
+```yaml
+# Layer 1: 高速・TPM不要（毎PRで走る）
+test-unit:
+  script:
+    - cargo test --workspace --lib -- --test-threads=4
+  # swtpm不要・並列実行可能・数秒で終わる
+
+# Layer 2: 中速・swtpm使用（毎PRで走る）
+test-integration:
+  script:
+    - swtpm socket ... --daemon
+    - cargo test --workspace --test -- --test-threads=1
+  # TPMが絡むテストのみ
+
+# Layer 3: 低速・実TPM（main pushのみ）
+test-hardware:
+  script:
+    - cargo test --workspace -- --test-threads=1
+  tags:
+    - hardware-tpm  # 実TPM搭載ランナー
+  only:
+    - main
+```
+
+### 論点4の結論
+
+| 問題 | 解決策 |
+|---|---|
+| Allowのサイレント劣化 | `AllowForTesting`に改名 + `BackendKind`公開 |
+| テストが全部swtpm依存 | 3層分離（unit / integration / hardware） |
+| `--test-threads=1`で遅い | Layer 1はTPM不要にしてPRで高速フィードバック |
+| 本番誤設定の検出 | `backend_kind()`アサーションをドキュメントに明記 |
+
+`AllowForTesting`の追加と`BackendKind`の公開 — この2つがv0.2に入れるべき最優先の運用改善。
+
+---
+
+## 論点5: argo/platのアーキテクチャ設計 — ZKPの社会実装
+
+### エコシステムの全体像と現実
+
+```
+hyde  → TPM + PQC     （Phase 1完了）
+argo  → ZKP           （計画中）
+plat  → FHE           （計画中）
+```
+
+これは世界最難関の暗号技術を3つ繋げる計画。現実のパフォーマンスを直視する必要がある。
+
+| 技術 | 用途 | 現実の速度（2025年時点） |
+|---|---|---|
+| ZKP（Groth16） | 証明生成 | 数秒〜数十秒 |
+| ZKP（PLONK） | 証明生成 | 数百ms〜数秒 |
+| FHE（TFHE） | AES-128一回 | 約10秒 |
+| FHE（CKKS） | 浮動小数演算 | 数ms〜数秒 |
+
+FHEは実用速度に達していない。platは長期ビジョンとして維持し、argoに集中すべき。
+
+### ZKPの社会実装 — なぜ空白地帯なのか
+
+ブロックチェーン領域ではZKPは既に実用段階（2025年時点でZKベースLayer2に$280億ロック、zkSyncは43,000 TPS）。
+
+しかし**政府・公共領域は根本的に違う問題**を抱えている。
+
+```
+ブロックチェーンのZKP
+  └── 「このトランザクションは正しい」を証明
+  └── オンチェーンで検証
+  └── 信頼の根拠 = ブロックチェーン
+
+政府・企業のZKP ← ここが空白地帯
+  └── 「私は〇〇の条件を満たす」を証明
+  └── オフラインで検証
+  └── 信頼の根拠 = ??? ← ここにTPMが入る
+```
+
+**信頼の根拠がない。** これが政府ZKPの社会実装が進んでいない本当の理由。
+
+NISTの2024年ワークショップでもBBS匿名クレデンシャルのeIDAS 2.0準拠、EUDIウォレットへのZKP適用が議題になっている。政府利用は標準化と規制整備が今まさに進行中の段階。
+
+### argoがhydeと組み合わさると何が起きるか
+
+```
+hyde（TPM + PQC）
+  └── 「このデバイス・この人物」を証明する信頼の根拠
+
+argo（ZKP）
+  └── hydeの信頼チェーンを使って
+      「私は〇〇の条件を満たす」を証明
+
+組み合わせると：
+  「私（特定の人物）は、
+   このデバイス（TPM検証済み）で、
+   〇〇の条件を満たす（ZKP）」
+   ↑ これを相手に何も見せずに証明できる
+```
+
+### 政府ユースケースの具体例
+
+| ユースケース | 証明すること | 見せないこと |
+|---|---|---|
+| マイナンバー | 日本国民である | 氏名・住所・番号 |
+| 年齢確認 | 20歳以上である | 生年月日・氏名 |
+| 所得証明 | 年収〇〇万円以上 | 正確な金額 |
+| 医療資格 | 医師免許を持つ | 個人情報 |
+| 入札資格 | 条件を満たす | 企業財務詳細 |
+
+これらは全部、今の行政では紙か全情報開示で証明しているもの。
+
+### argoの設計方針
+
+```
+方針A: ZKPプリミティブをhydeに統合
+  → argo = hyde + bellman/arkworks のラッパー
+  → 開発者がcircuitを書く必要あり
+  → 難易度高い
+
+方針B: 証明テンプレートを用意する ← 推奨
+  → argo = よく使うZKP証明を事前定義
+  → 「年齢確認」「所得範囲」「資格保有」を一行で
+  → 開発者はcircuitを書かなくていい
+  → 社会実装に直結
+```
+
+方針Bの理想的なAPI：
+
+```rust
+use argo::proofs::AgeProof;
+
+// 「20歳以上」を証明（生年月日は見せない）
+let proof = AgeProof::prove(
+    birth_date,       // 秘密の witness
+    threshold: 20,    // 公開条件
+    hyde_ctx: &ctx,   // TPMで身元を担保
+)?;
+
+// 検証側（生年月日を知らなくても検証できる）
+AgeProof::verify(&proof, threshold: 20)?;
+```
+
+### platの位置づけ — FHEは遅いが、スピードは問題ではない
+
+#### FHEとは何か
+
+```
+通常の計算：
+  暗号文 → 復号 → 計算 → 再暗号化
+  ↑ 計算する人がデータを見てしまう
+
+FHE（完全準同型暗号）：
+  暗号文 → 暗号化したまま計算 → 暗号文
+  ↑ 計算する人はデータを一切見ない
+```
+
+#### FHEのパフォーマンス現実
+
+```
+通常の AES-128 一回：   ナノ秒
+FHE で AES-128 一回：   約10秒（1000万倍遅い）
+```
+
+しかし**スピードが問題になるかはユースケース次第**。
+
+```
+スピードが重要（FHE不可）        スピードが不要（FHE可能）
+├── 決済処理（0.1秒以内）        ├── 医療診断（1日待てる）
+├── 音声認識（リアルタイム）      ├── 税務計算（月次）
+├── 株式取引（ミリ秒）           ├── 統計集計（週次）
+                                 └── 機密文書の分析（数時間待てる）
+```
+
+#### platの正しいポジショニング
+
+```
+❌ 間違い：「高速な暗号計算基盤」
+           → FHEは速くないので無理
+
+✅ 正解：「今まで渡せなかったデータを計算させられる基盤」
+           → スピードではなく可能性の拡張
+```
+
+#### 医療診断 — platの最初のターゲット
+
+医療診断はFHEの最も説得力のあるユースケース。理由が3つ：
+
+1. **データが極めて機密性が高い** — 遺伝子情報・病歴・精神疾患記録、誰にも見せたくない
+2. **計算は専門AIに任せたい** — 自分では診断できない、見せずに計算させたい
+3. **リアルタイム不要** — 10秒でも数分でも待てる（現状の医療は検査結果に数日〜1週間）
+
+#### hyde + argo + platが揃うと何が起きるか
+
+```rust
+// hyde：患者の遺伝子データを暗号化・デバイス紐付け
+let encrypted_genome = ctx.protect(&genome_data)?;
+
+// plat：暗号化したまま医療AIに計算させる
+let encrypted_result = plat::compute(
+    &encrypted_genome,
+    ai_model: "cancer_risk_v3",
+)?;
+
+// hyde：患者本人だけが復号できる
+let diagnosis = ctx.unprotect(&encrypted_result)?;
+
+// argo：「高リスク」という事実だけを保険会社に証明
+// （実際の数値は見せない）
+let proof = argo::prove_threshold(
+    &diagnosis,
+    condition: "risk_score < 0.3",
+)?;
+```
+
+**遺伝子データは誰にも見えていない。医療AIも、保険会社も。**
+
+#### これが「誰も作っていない」理由
+
+```
+医療AI企業：計算はできる、でもデータが来ない
+患者：診断を受けたい、でもデータを渡したくない
+保険会社：リスク評価したい、でも個人情報は要らない
+
+3者の利害が一致しない → 市場が生まれない
+
+hyde + argo + plat：
+→ 3者全員がWINする仕組みを技術で実現
+→ 市場が生まれる
+```
+
+#### platの設計方針
+
+FHEの遅さは問題ではない。問題は「使いやすさ」。開発者がFHEのcircuitを書くのは不可能に近い。argoと同じく**計算テンプレート方式**が正解。
+
+```rust
+// 開発者はFHEを意識しない
+plat::compute(data, model)
+// 内部でFHEが動いているが抽象化されている
+```
+
+### 論点5の結論
+
+| 問い | 答え |
+|---|---|
+| ZKPの社会実装は誰もやっていないか | ブロックチェーン以外はほぼ空白 ✅ |
+| なぜ進んでいないか | 信頼の根拠がない → hydeが解決 |
+| argoの独自性 | TPM信頼チェーン + ZKP = 世界初の組み合わせ |
+| 実装方針 | 方針B（証明テンプレート）で社会実装に直結 |
+| 最初のターゲット（argo） | マイナンバー・年齢確認・資格証明 |
+| FHEのスピード問題 | ユースケース次第。医療診断なら10秒でも問題なし |
+| platの独自性 | 「渡せなかったデータを計算させられる」可能性の拡張 |
+| 最初のターゲット（plat） | 医療診断AI（遺伝子データの機密計算） |
+| エコシステム全体の意義 | データを一切公開せずに社会的信頼を構築する世界 |
+
 ## 参考資料
 
 - [tss-esapi crate](https://docs.rs/tss-esapi/)
 - [TPM 2.0 Library Specification](https://trustedcomputinggroup.org/resource/tpm-library-specification/)
 - [swtpm - Software TPM Emulator](https://github.com/stefanberger/swtpm)
+- [BitLocker Overview — Microsoft Learn](https://learn.microsoft.com/en-us/windows/security/operating-system-security/data-protection/bitlocker/)
+- [Azure Confidential Computing — Intel TDX](https://learn.microsoft.com/en-us/azure/confidential-computing/)
 
 ---
 

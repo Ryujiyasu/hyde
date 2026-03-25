@@ -1,470 +1,399 @@
-# hyde — ロードマップ
+# hyde Roadmap / hydeロードマップ
 
-> 「実行時保護のMissing Layer」を埋める唯一のOSS Rust crate
-
----
-
-## ビジョン
-
-データには3つの状態がある。2つは解決済み。1つは未解決。
-
-```
-保存時（at rest）  → BitLocker / FileVault  ✅
-通信時（in transit）→ HTTPS / TLS           ✅
-実行時（in use）   → ???                    ← hydeはここ
-```
-
-hydeのゴールは：
-**「どのクラウドに保存されても、誰にも読めないドキュメント」を実現する基盤を、OSSとして世界に届ける。**
+> このドキュメントは今日の議論（2026年3月）で大幅に更新されました。
 
 ---
 
-## Hyde エコシステム
+## Vision / ビジョン
 
-hydeは3モジュール暗号エコシステムの基盤：
+**「データを一切公開せずに社会的な信頼を構築する」**
 
-```
-  守る (Protect)     証明する (Prove)     計算する (Compute)
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│    hyde      │──▶│    argo     │──▶│    plat     │
-│  TPM + PQC   │   │    ZKP      │   │    FHE      │
-│  ML-KEM-768  │   │  証明エンジン │   │  演算エンジン │
-└─────────────┘   └─────────────┘   └─────────────┘
-```
+データには3つの状態だけでなく、3つの操作がある：
 
-| モジュール | 技術 | 用途 | リポジトリ |
-|-----------|------|------|-----------|
-| **hyde** | TPM + PQC (ML-KEM-768) | データを守る | [gitlab.com/Ryujiyasu/hyde](https://gitlab.com/Ryujiyasu/hyde) |
-| **argo** | ZKP (ゼロ知識証明) | データを見せずに証明する | [gitlab.com/Ryujiyasu/argo](https://gitlab.com/Ryujiyasu/argo) |
-| **plat** | FHE (完全準同型暗号) | 暗号化したまま計算する | [gitlab.com/Ryujiyasu/plat](https://gitlab.com/Ryujiyasu/plat) |
-
-### ２つの市場戦略
-
-| 戦略 | ターゲット | アプローチ |
-|------|----------|-----------|
-| **強化型** | 防衛省・政府・金融 | 既存の防御を更に強化（hyde） |
-| **OPEN型** | 病院・研究機関 | データを安全に利活用（argo + plat） |
+| 操作 | モジュール | 技術 |
+|---|---|---|
+| 守る | hyde | TPM + PQC |
+| 証明する | argo | ZKP |
+| 計算する | plat | FHE / GPU TEE |
 
 ---
 
-## フェーズ全体像
+## Phase 1: TPM 2.0 ✅ 完了
 
-```
-Phase 1          Phase 1.5        Phase 2          Phase 3          Phase 4
-TPM 2.0          PQC対応          クラウドTEE      モバイル          統合エコシステム
-（完了）          （完了）          （6〜18ヶ月）    （12〜24ヶ月）    （18ヶ月〜）
+### 実装済み機能
 
-Windows/Linux    ML-KEM-768       Intel TDX        iOS Secure        oxi統合
-TPM 2.0対応      HNDL耐性         AMD SEV-SNP      Enclave           人単位ライセンス
-基本API確立       二層暗号化        クラウドVM対応    Android           argo/plat統合
-crates.io公開    チップ移行簡素化   サーバー側保護    TrustZone         SaaS展開
-```
+- TPM接続 + セッション管理
+- Primary Key生成 + 永続化
+- Data Key生成 + ラッピング（BitLockerパターン）
+- Seal / Unseal（AES-256-GCM）
+- ML-KEM-768 PQC暗号化（常時有効）
+- 二層暗号化: PQC（内側）+ TPM（外側）
+- ProtectedData シリアライズ（serde）
+- PassphraseRecovery（Argon2id）
+- HydeContext public API
+- auto_detect() ファサード
+- SoftwareBackend スタブ
+- 統合テスト 15件（swtpm）
+- PCR policy binding（PCR 0 + 7）
+- `#[hyde::protect]` proc macro + `Protected<T>`
+- CI/CD（GitLab CI + swtpm）
+- crates.io 公開（hyde v0.1.0）
+
+### Phase 1の守備範囲と限界
+
+**守れるもの：**
+- ディスク盗難
+- 物理攻撃（dTPMはSPIバス盗聴リスクあり → Phase 1.5で対処）
+
+**守れないもの（設計上の制約）：**
+- クラウドAdmin・ハイパーバイザーからのメモリアクセス
+  → Phase 2（TDX/SEV-SNP）で解決
+
+> この制約はBitLockerと同じです。
+> BitLockerもTPM単体ではクラウドAdminから守れません。
 
 ---
 
-## Phase 1：TPM 2.0 ✅ 完了
+## Phase 1.5: PersonBinding ← 次の優先事項
 
-**期間**：〜4ヶ月
-**目標**：Windows 11のTPMで動くデモとcrates.io公開
+### 背景
 
-### なぜTPMから始めるか
-
-```
-Windows 11の全ユーザーがTPM 2.0を持っている
-→ 世界中のPCに既に搭載済み
-→ 追加ハードウェア不要
-→ 今すぐ使える
-```
-
-### 実装項目
+dTPM（外付けTPMチップ）環境では、
+TPM-onlyモードはSPIバス盗聴攻撃に対して脆弱です。
 
 ```
-コア：
-- [ ] TeeBackend trait定義（将来の拡張を見据えた設計）
-- [ ] TpmBackend実装（tss-esapi使用）
-- [ ] Primary Key生成・永続化（デバイスに1つ）
-- [ ] Data Key生成・ラップ（データごと）
-- [ ] シーリング（PCRバインディング）
-- [ ] アンシーリング
-- [ ] VeilContext公開API（protect / unprotect / backup / restore）
-- [ ] FallbackPolicy（deny / warn / software）
-- [ ] SoftwareBackendスタブ
-
-永続化：
-- [ ] ProtectedDataのSerialize/Deserialize対応
-- [ ] WrappedKey（Key Blob）のディスク保存
-
-回復：
-- [ ] パスフレーズベースの鍵バックアップ
-- [ ] パスフレーズからの鍵回復（Argon2id鍵導出）
-
-開発者体験：
-- [ ] #[veil::protect] アトリビュートマクロ（基本版）
-- [ ] swtpmを使った自動テスト
-- [ ] GitHub Actions CI（Linux + Windows）
-- [ ] ドキュメント（docs.rs）
-
-公開：
-- [ ] crates.io v0.1.0リリース
-- [ ] セキュリティカンファレンスでの発表
-- [ ] 技術ブログ記事
+攻撃コスト：$300のロジックアナライザー + 10分の物理アクセス
+攻撃結果：dkが平文で取得可能 → 全DataKey復号可能
 ```
 
-### 成功基準
+READMEに「特定のデバイス＋特定の人物」と書いているが、
+TPM-onlyでは「人物」バインディングが実現できていない。
 
+### 実装計画
+
+```rust
+pub enum PersonBinding {
+    /// TPM + PIN（BitLocker TPM+PIN相当）
+    Pin,
+    /// TPM + Passphrase
+    Passphrase,
+    /// 将来: FIDO2/Passkey
+    // Fido2,
+}
+
+let ctx = hyde::auto_detect(FallbackPolicy::Deny)?
+    .with_person_binding(PersonBinding::Pin)?;
 ```
-✅ swtpmを使ったテストが全てパス
-✅ 実機TPMでのエンドツーエンドデモが動作
-✅ crates.io に公開済み
-✅ 「protect → unprotect」の往復が30行以内のコードで書ける
-✅ ProtectedDataをJSONに保存→再読み込み→復号のフローが動作
+
+### fTPM vs dTPM の扱い
+
+```rust
+pub enum TpmKind {
+    Firmware,  // CPU内蔵 (Intel PTT, AMD fTPM) - SPI傍受不可
+    Discrete,  // 外付けチップ - SPI傍受リスクあり
+    Unknown,
+}
+
+// auto_detect()がTPM種別を検出し、
+// dTPM環境ではPersonBindingを推奨する
+```
+
+### FallbackPolicy改善（v0.2）
+
+```rust
+pub enum FallbackPolicy {
+    Deny,            // 本番用（TPMなし → エラー）
+    AllowForTesting, // CI/CD用（旧Allowから改名）
+}
+
+pub enum BackendKind {
+    Tpm,         // 本物のTPM
+    SoftwareOnly, // テスト用フォールバック
+}
+
+impl HydeContext {
+    pub fn backend_kind(&self) -> BackendKind { ... }
+    pub fn tpm_kind(&self) -> TpmKind { ... }
+}
 ```
 
 ---
 
-## Phase 1.5：ポスト量子暗号 (PQC) ✅ 完了
+## Phase 2: Intel TDX / AMD SEV-SNP（Cloud TEE）
 
-**目標**：HNDL攻撃耐性 + チップ移行の簡素化
+### なぜ必要か
 
-### なぜPQCが必要か
-
-```
-HNDL (Harvest Now, Decrypt Later):
-→ 暗号化データを今収集し、将来量子コンピュータで解読する攻撃
-→ 医療データや機密文書をS3に保存 → 数年後に量子コンピュータで解読される
-→ TPMのRSA鍵ラッピングだけでは不十分
-```
-
-### 実装項目 ✅
+PCRポリシーはブート整合性の検出に有効だが、
+クラウドAdminのメモリアクセスには無力。
 
 ```
-- [x] ML-KEM-768 (NIST FIPS 203) 鍵カプセル化
-- [x] 二層暗号化：PQC（内側、チップ非依存）+ TPM（外側、デバイスバインド）
-- [x] ProtectedData v2フォーマット（v1後方互換）
-- [x] 常時PQC有効（開発者の選択不要 — SecurityLevelはキャッシュ制御のみ）
-- [x] チップ移行時のデータ再暗号化不要（PQC層がチップ非依存）
+PCRが守れるもの：
+  ブートローダー改ざん、ディスク差し替え
+
+PCRが守れないもの：
+  VMスナップショット、ハイパーバイザーからのメモリダンプ
+  → クラウドAdmin攻撃
 ```
 
-### 設計判断
+TDX/SEV-SNPはハードウェアレベルでメモリを暗号化し、
+ハイパーバイザー自身も中身を読めない。
 
-```
-検討した2つのアプローチ：
-1. 使い分け（重要度に応じてPQC有無を選択） → 却下
-2. 全データPQC（常時最強暗号化）          → 採用 ✅
+### 実装方針
 
-理由：
-- 開発者に暗号強度の判断を押し付けるのはhydeの設計思想に反する
-- 「重要じゃないと思ったデータ」が実は重要だったケースは多い
-- PQCのコストは今後下がる
-- APIがシンプルなまま保てる
-```
+```rust
+// hyde-tdx crate
+// hyde-sev crate
 
----
-
-## Phase 2：クラウドTEE対応
-
-**期間**：Phase 1完了後〜6ヶ月
-**目標**：クラウドVM上でのサーバーサイド実行時保護
-
-### 対象ハードウェア
-
-| テクノロジー | クラウド | 利用可能VM |
-|------------|---------|----------|
-| Intel TDX | Azure, GCP | DCesv6, C3 |
-| AMD SEV-SNP | AWS, GCP, Azure | N2D, M3 |
-
-### なぜクラウドTEEが重要か
-
-```
-現状：
-クラウドプロバイダーは理論上、顧客のVMメモリにアクセスできる
-→ 「クラウドを信頼しなければならない」
-
-TDX/SEV-SNP後：
-VMのメモリがハードウェアレベルで暗号化される
-→ AWSの管理者も読めない
-→ 国家機密をAWSに置けるようになる
+// TeeBackendトレイトをTDX/SEV-SNPに実装
+// → auto_detect()が環境を検出して自動選択
 ```
 
-### 実装項目
+### Remote Attestation
+
+Phase 2の核心機能。
 
 ```
-Intel TDX：
-- [ ] tdx crateとの統合
-- [ ] リモートアテステーション（証明書検証）
-- [ ] TdxBackend実装（crates/veil-tdx/）
+ユーザー「このTDX環境で動いているhydeが
+         正規のコードであることを証明してください」
 
-AMD SEV-SNP：
-- [ ] sev crateとの統合
-- [ ] アテステーションレポート検証
-- [ ] SevBackend実装（crates/veil-sev/）
-
-共通：
-- [ ] クラウドプロバイダー別のTCTI設定
-- [ ] アテステーションの抽象化API
-- [ ] TeeBackend traitの拡張（attestation()メソッド追加）
-- [ ] SoftwareBackendの本実装
-```
-
-### 成功基準
-
-```
-✅ Azure TDX VMでのデモ動作
-✅ AWS Nitro Enclaveと同等の機能をOSSで実現
-✅ 「サーバー上で処理中のデータもクラウドが読めない」のデモ
+hyde「ここに暗号学的証明（Quote）があります。
+     Intel/AMDのRoot of Trustで検証できます」
 ```
 
 ---
 
-## Phase 3：モバイル対応
+## Phase 3: Apple Secure Enclave / ARM TrustZone（Mobile）
 
-**期間**：Phase 1完了後〜12ヶ月
-**目標**：iOS・Androidでの実行時保護
+### ターゲット
 
-### 対象ハードウェア
+- iOS / macOS: Secure Enclave
+- Android: ARM TrustZone / StrongBox
 
-| プラットフォーム | テクノロジー | 特徴 |
-|--------------|------------|------|
-| iOS / macOS | Secure Enclave | Apple独自・高信頼 |
-| Android | TrustZone / StrongBox | ARM標準 |
-
-### 実装項目
+### モバイルでの独自価値
 
 ```
-iOS / macOS（Swift bindings）：
-- [ ] veil-swift パッケージ
-- [ ] Secure EnclaveのRustラッパー
-- [ ] SwiftからRustを呼び出すFFI層
-- [ ] iOS Keychain連携
+モバイルユーザーの医療データを
+Secure Enclaveで保護したまま
+クラウドのFHE AIで診断する
 
-Android（Kotlin bindings）：
-- [ ] veil-kotlin パッケージ
-- [ ] Android Keystoreとの統合
-- [ ] JNI経由でのRust呼び出し
-- [ ] StrongBox対応
-
-共通：
-- [ ] 生体認証との連携API
-  （Face ID / Touch ID / 指紋認証）
-- [ ] 生体認証で保護した鍵のクラウド同期
-  （クラウドは暗号文のみ保持）
-```
-
-### 成功基準
-
-```
-✅ iPhoneのFace IDで保護したドキュメントを
-   同じiPhoneのFace IDでのみ復号できるデモ
-✅ 「高市首相にしか読めない文章」の実装
+→ hyde（Mobile）+ plat（Cloud）の連携
 ```
 
 ---
 
-## Phase 4：統合エコシステム
+## Phase 4: NVIDIA H100 Confidential Computing（GPU TEE）
 
-**期間**：Phase 1完了後〜18ヶ月
-**目標**：oxiとの統合・エンタープライズSaaS展開
+### H100の革新性
 
-### oxi統合
+H100は世界初のTEE対応GPUです（2023年〜、2024年6月GA）。
 
+**従来の問題：**
 ```
-目標：「誰も読めないGoogle Docs」
-```
-
-#### 統合シナリオ1：oxihanko + veil（PAdES署名のTEE化）
-
-```
-oxihankoは既にPKCS#7/PAdES署名を実装済み。
-veilのTPM鍵でPAdES署名を行うことで、
-署名鍵が特定のデバイス・特定の人物に紐付く。
-
-実装：
-- [ ] oxihankoの署名バックエンドにveilを統合
-- [ ] TPM鍵によるPAdES署名の生成
-- [ ] 署名鍵のTPMシーリング
-- [ ] 印鑑（hanko）+ TEE署名の組み合わせデモ
+CPU TEE（TDX/SEV-SNP）
+  → CPUメモリは保護できる
+  → GPUへのデータ転送時に平文になる ← 穴
 ```
 
-#### 統合シナリオ2：リアルタイム協調編集 + E2E暗号化
-
+**H100 Confidential Computing：**
 ```
-oxi v2ではCRDT + zero-knowledge relayによる
-リアルタイム協調編集が計画されている。
-veilのTEEアテステーションで相手の実行環境を検証してから
-鍵交換を行うことで、E2E暗号化の信頼性を強化。
-
-実装：
-- [ ] 協調編集セッション開始時のTEEアテステーション交換
-- [ ] アテステーション検証後の鍵交換プロトコル
-- [ ] リレーサーバーは暗号文のみ保持（zero-knowledge）
-- [ ] 「編集中もクラウドが読めない」のエンドツーエンドデモ
+CPU TEE + GPU TEE
+  → PCIeバス上のデータも暗号化（bounce buffer）
+  → GPU内部も保護
+  → 端から端まで暗号化
 ```
 
-#### 統合シナリオ3：ドキュメント暗号鍵のTPMシーリング
+### パフォーマンス
+
+LLM推論タスクでのTEEモードオーバーヘッドは
+典型的なクエリで5%以下。実用的。
+
+### hydeとの統合
 
 ```
-oxiで開いた.docx/.xlsx/.pptxの復号鍵を
-veilで保護するもっとも基本的な統合パス。
+hyde Phase 2（CPU TEE）+ Phase 4（GPU TEE）
+= 完全なConfidential AI
 
-実装：
-- [ ] oxi-wasmからveilのprotect/unprotect呼び出し
-- [ ] ドキュメント暗号鍵のProtectedData化
-- [ ] 暗号化済みドキュメントのローカル保存・クラウド同期
-- [ ] パスフレーズ回復によるデバイス移行フロー
+CPU: TDX/SEV-SNP でOSレベル保護
+GPU: H100 CC でAI計算レベル保護
 ```
 
-### 人単位ライセンス管理SaaS
+### 独自性
 
-```
-概念：
-従来：シリアルキー → コピー可能・共有可能・盗難可能
-veil：TPM＋生体認証 → 「この人・このデバイス」のみ有効
+NVIDIAのエコシステムはクローズド。
+hydeがオープンソースの抽象化レイヤーとして
+H100を統合することで、ベンダーロックインを防ぐ。
 
-実装：
-- [ ] ライセンスの発行API
-- [ ] TPMアテステーション＋生体認証ハッシュへのバインド
-- [ ] 退職・デバイス変更時の自動失効
-- [ ] 管理ダッシュボード
-
-ユースケース：
-- SoftwareのTPMライセンス管理
-- Adobe Creative Cloud代替のライセンスモデル
-- 退職と同時に全ライセンスが失効する企業向けシステム
-
-⚠️ 規制リスク：
-- TPMシリアル番号・生体認証ハッシュは個人データに該当しうる
-- GDPR（EU）、個人情報保護法（日本）の遵守が必要
-- 生体認証テンプレートの保存・処理には明示的な同意が必須
-- TPMアテステーション情報からのデバイストラッキングのリスク
-- 対策：個人データの最小化、匿名化されたアテステーション、
-  データ保護影響評価（DPIA）の実施
-```
-
-### エンタープライズ展開
-
-```
-ターゲット：
-- 法律事務所（機密文書）
-- 金融機関（取引データ）
-- 医療機関（患者データ）
-- 防衛関連（機密情報）
-- 政府・官公庁（国家機密）
-
-提供形態：
-- veil OSSコア：永続無料（crates.io）
-- エンタープライズサポート：SLA・監査・CVE対応（有償）
-- 人単位ライセンス管理SaaS：月額課金（有償）
-- 統合コンサルティング：既存システムへの組み込み（有償）
-```
-
-### デジタル庁・IPA連携
-
-```
-目標：
-ガバメントクラウド上で国家機密文書を
-安全に扱える基盤としての採用
-
-アプローチ：
-- IPA未踏採択を通じたネットワーク活用
-- デジタル庁のガバメントクラウド要件との整合
-- 実証実験の推進
+```rust
+// hyde-h100 crate（計画）
+let ctx = hyde::auto_detect(FallbackPolicy::Deny)?
+    .with_gpu_tee(GpuBackend::H100)?;
 ```
 
 ---
 
-## 技術的マイルストーン
+## Phase 5: IoT Secure Elements
+
+- Microchip ATECC608
+- NXP SE050
+- ARM TrustZone-M
+
+### ユースケース
 
 ```
-v0.1.0（Phase 1完了） ✅
-  └─ TPM 2.0対応・crates.io公開
-  └─ マルチクレートワークスペース構成
-
-v0.2.0（Phase 1.5完了） ✅
-  └─ ML-KEM-768 PQC暗号化（常時有効）
-  └─ 二層暗号化アーキテクチャ
-  └─ HNDL攻撃耐性
-
-v0.3.0
-  └─ #[hyde::protect] マクロの完成版
-  └─ Windows Hello連携
-
-v0.4.0（Phase 2開始）
-  └─ Intel TDX対応（hyde-tdx crate）
-
-v0.5.0
-  └─ AMD SEV-SNP対応（hyde-sev crate）
-  └─ アテステーションAPI
-
-v0.6.0（Phase 3開始）
-  └─ iOS Secure Enclave対応
-
-v0.7.0
-  └─ Android TrustZone対応
-
-v1.0.0（Phase 4）
-  └─ oxi統合デモ（oxihanko + E2E + ドキュメント鍵保護）
-  └─ argo (ZKP) / plat (FHE) エコシステム統合
-  └─ 人単位ライセンスSaaS β版
-  └─ エンタープライズサポート開始
+工場のIoTセンサー → hyde（TrustZone-M）で暗号化
+  → クラウドへ送信（hyde保護）
+  → plat（FHE）で集計分析
+  → 工場は生データを渡していない
 ```
 
 ---
 
-## ビジネスモデル
+## Phase 6: argo（ZKP）
+
+### 背景と独自性
+
+ZKPはブロックチェーン領域では実用段階だが、
+政府・公共領域への社会実装は空白地帯。
+
+**空白の理由：信頼の根拠がない。**
 
 ```
-                    認知                    収益
-┌───────────────────────────────────────────────────────┐
-│                                                       │
-│   oxi（無料・OSS）──────────────→ hyde（有料・OSS＋）  │
-│   Office互換エディタ              実行時保護基盤        │
-│   世界中に普及                    企業向けSaaS          │
-│                                                       │
-│          hyde ecosystem:                              │
-│          hyde (TPM+PQC) → argo (ZKP) → plat (FHE)    │
-│          守る → 証明する → 計算する                     │
-│                                                       │
-└───────────────────────────────────────────────────────┘
+ブロックチェーンのZKP：信頼の根拠 = ブロックチェーン
+政府・企業のZKP：信頼の根拠 = ???
+                              ↑ ここにTPMが入る
+```
 
-収益源（hyde ecosystem）：
-1. エンタープライズSLA・サポート契約
-2. 人単位ライセンス管理SaaS（月額課金）
-3. セキュリティ監査サービス
-4. 統合コンサルティング
-5. OPEN型：argo/platを活用した医療・研究データ利活用基盤
+argoはhydeのTPM信頼チェーンを根拠にすることで、
+政府・公共領域へのZKP社会実装を実現する。
+
+### 設計方針
+
+```
+方針A: ZKPプリミティブのラッパー（開発者がcircuitを書く）
+方針B: 証明テンプレート（よく使う証明を事前定義）
+→ 方針Bを採用。社会実装への近道。
+```
+
+### API設計
+
+```rust
+use argo::proofs::AgeProof;
+
+// 「20歳以上」を証明（生年月日は見せない）
+let proof = AgeProof::prove(
+    birth_date,       // 秘密のwitness
+    threshold: 20,    // 公開条件
+    hyde_ctx: &ctx,   // TPMで身元を担保
+)?;
+
+// 検証側（生年月日を知らなくても検証できる）
+AgeProof::verify(&proof, threshold: 20)?;
+```
+
+### 証明テンプレート（優先実装順）
+
+| テンプレート | 証明内容 | 見せないもの |
+|---|---|---|
+| AgeProof | 年齢が閾値以上 | 生年月日・氏名 |
+| IncomeRangeProof | 所得が範囲内 | 正確な金額 |
+| CredentialProof | 資格・免許の保有 | 個人情報 |
+| NationalityProof | 国籍 | 住所・番号 |
+| MembershipProof | グループメンバー | 個人情報 |
+
+---
+
+## Phase 7: plat（FHE / GPU TEE）
+
+### FHEの正しい理解
+
+FHEは「遅い」のではなく「ユースケースが違う」。
+
+```
+スピードが重要：決済（0.1秒）、音声認識（RT）
+  → FHEは使えない
+
+スピードが不要：医療診断（1日待てる）、税務計算（月次）
+  → FHEが使える
+```
+
+**FHEの本質的な価値：**
+「今まで渡せなかったデータを計算させられる」
+
+### 2つの実装経路
+
+**plat v1: FHE**
+```
+特徴：完全な暗号化計算
+速度：10秒〜数分
+用途：医療診断、税務計算、統計集計
+```
+
+**plat v2: H100 Confidential Computing**
+```
+特徴：TEEで保護したままAI計算
+速度：通常の5%オーバーヘッド
+用途：LLM推論、画像診断AI、リアルタイム分析
+```
+
+### API設計
+
+```rust
+// plat v1: FHE
+let encrypted_result = plat::fhe::compute(
+    &encrypted_data,
+    circuit: MedicalDiagnosisCircuit,
+)?;
+
+// plat v2: H100 CC
+let encrypted_result = plat::gpu::compute(
+    &encrypted_data,
+    model: "cancer_risk_v3",
+    backend: GpuBackend::H100,
+)?;
 ```
 
 ---
 
-## 競合優位性の維持
+## エコシステム統合図（最終形）
 
 ```
-参入障壁：
-1. 技術的複雑性
-   → TPM/TDX/SEV/Secure Enclave/TrustZoneの
-     統一抽象化は非常に難しい
-   → 先行者優位が大きい
-
-2. エコシステム
-   → oxiとの統合が独自の価値を生む
-   → 単独では再現できない
-
-3. 信頼
-   → セキュリティソフトは信頼が最重要
-   → OSSとして透明性を確保
-   → 採用実績が信頼を生む
-
-4. 特許リスクなし
-   → ブラックボックステスト手法（oxi）
-   → 既存OSSの統合（veil）
-   → 新しいアルゴリズムは使わない
+┌─────────────────────────────────────────────────┐
+│              Application Layer                   │
+└──────────┬──────────────┬───────────────────────┘
+           │              │              │
+    ┌──────▼──────┐ ┌─────▼─────┐ ┌────▼──────┐
+    │    hyde      │ │   argo    │ │   plat    │
+    │  TPM + PQC   │ │    ZKP    │ │ FHE/H100  │
+    │    守る       │ │  証明する  │ │  計算する  │
+    └──────┬───────┘ └─────┬─────┘ └────┬──────┘
+           │               │             │
+    ┌──────▼───────────────▼─────────────▼──────┐
+    │              hyde-core                      │
+    │         TPM Trust Chain                     │
+    │    （全モジュールの信頼の根拠）               │
+    └─────────────────────────────────────────────┘
+           │
+    ┌──────▼────────────────────────────────────┐
+    │              Backend Layer                  │
+    │  TPM 2.0 | TDX | SEV-SNP | H100 | SE | TZ │
+    └────────────────────────────────────────────┘
 ```
 
 ---
 
-## 参考資料
+## 世界でこのビジョンを理解できる人
 
-- [tss-esapi crate](https://docs.rs/tss-esapi/)
-- [Intel TDX Documentation](https://www.intel.com/content/www/us/en/developer/tools/trust-domain-extensions/overview.html)
-- [AMD SEV-SNP](https://www.amd.com/en/processors/amd-secure-encrypted-virtualization)
-- [Apple Secure Enclave](https://support.apple.com/guide/security/secure-enclave-sec59b0b31ff/web)
+```
+TPM + PQC + ZKP + FHE + 社会実装ビジョン
+すべてを理解している人：世界で数百人レベル
+
+各分野のトップ研究者でも隣の分野は知らないことが多い：
+- TPM専門家はFHEを知らない
+- FHE研究者はTPMを触ったことがない
+- ZKP開発者はRustが書けない
+
+hydeエコシステムはこの分断を繋ぐ。
+```
+
+**旗を立てる人と実装する人は別でいい。**
+Linusはファイルシステムの専門家ではなかった。

@@ -21,15 +21,28 @@ Data has three states. Two are solved. One is not.
 
 データには3つの状態がある。2つは解決済み。1つは未解決。
 
-| State / 状態 | Threat / 脅威 | Existing Solution / 既存の解決策 |
-|------|------|-------------|
-| At rest / 保存時 | Disk theft / ディスク盗難 | BitLocker / FileVault |
-| In transit / 通信時 | Interception / 通信傍受 | HTTPS / TLS |
-| **In use / 実行時** | **Memory access, cloud admin** | **Unsolved ← hyde** |
+| State / 状態 | Threat / 脅威 | Solution / 解決策 |
+|---|---|---|
+| At rest / 保存時 | Disk theft | BitLocker / FileVault |
+| In transit / 通信時 | Interception | HTTPS / TLS |
+| In use / 実行時（物理） | Memory sniff, SPI bus attack | **hyde Phase 1 (TPM)** |
+| In use / 実行時（クラウド） | Cloud admin, hypervisor | **hyde Phase 2 (TDX/SEV-SNP)** |
+| In use / 実行時（AI） | Model theft, prompt leak | **hyde Phase 4 (H100 CC)** |
 
 hyde binds secrets to **a specific device + a specific person** using TPM (Trusted Platform Module). Even if stored in the cloud, data cannot be decrypted without that person and that device.
 
 hydeはTPMを使い、秘密情報を「特定のデバイス＋特定の人物」に紐付けて保護する。クラウドに保存されても、その人物・そのデバイスなしには復号できない。
+
+### Protection scope by phase / フェーズ別の守備範囲
+
+| Phase | Technology | Disk theft / ディスク盗難 | Boot tampering / ブート改ざん | **Cloud admin (memory access)** |
+|-------|-----------|:-:|:-:|:-:|
+| **1 (current)** | TPM 2.0 + PQC | ✅ | ✅ | ❌ PCR cannot prevent runtime memory access |
+| **2 (planned)** | Intel TDX / AMD SEV-SNP | ✅ | ✅ | ✅ Hardware-level memory encryption |
+
+Phase 1 protects **data at rest** (disk theft, boot integrity) and **data in transit** (PQC encryption). Protection against **cloud admin runtime memory access** requires Phase 2's hardware memory encryption (TDX/SEV-SNP), which prevents even the hypervisor from reading VM memory.
+
+Phase 1は**保存時**（ディスク盗難・ブート整合性）と**通信時**（PQC暗号化）を保護する。**クラウド管理者による実行時メモリアクセス**の防御にはPhase 2のハードウェアメモリ暗号化（TDX/SEV-SNP）が必要 — ハイパーバイザー自身もVMメモリを読めない設計。
 
 ---
 
@@ -80,7 +93,7 @@ hydeは3モジュールの暗号エコシステムの基盤：
 |--------|-----------|----------------|
 | **[hyde](https://gitlab.com/Ryujiyasu/hyde)** | TPM + PQC (ML-KEM) | **Protect** data — encrypt, device-bind, quantum-resistant / データを守る |
 | **[argo](https://gitlab.com/Ryujiyasu/argo)** | ZKP (Zero-Knowledge Proofs) | **Prove** statements without revealing data / データを見せずに証明する |
-| **[plat](https://gitlab.com/Ryujiyasu/plat)** | FHE (Fully Homomorphic Encryption) | **Compute** on encrypted data / 暗号化したまま計算する |
+| **[plat](https://gitlab.com/Ryujiyasu/plat)** | FHE / GPU TEE (H100) | **Compute** on encrypted data / 暗号化したまま計算する |
 
 </div>
 
@@ -88,7 +101,7 @@ hydeは3モジュールの暗号エコシステムの基盤：
  Protect          Prove           Compute
 ┌─────────┐    ┌─────────┐    ┌─────────┐
 │  hyde    │───▶│  argo   │───▶│  plat   │
-│ TPM+PQC │    │  ZKP    │    │  FHE    │
+│ TPM+PQC │    │  ZKP    │    │FHE/H100 │
 └─────────┘    └─────────┘    └─────────┘
   守る            証明する        計算する
 ```
@@ -96,6 +109,26 @@ hydeは3モジュールの暗号エコシステムの基盤：
 All modules share hyde's TPM trust chain as the key management foundation.
 
 全モジュールがhydeのTPM信頼チェーンを鍵管理の基盤として共有。
+
+### The Vision / ビジョン
+
+Together, these three modules enable a world where **social trust can be established without ever exposing data**.
+
+3つのモジュールが揃うことで、**データを一切公開せずに社会的な信頼を構築できる**世界を実現する。
+
+```
+Example: Medical AI diagnosis without exposing patient data
+例：患者データを公開せずに医療AI診断
+
+hyde: Encrypt genome data, bind to patient's device
+      遺伝子データを暗号化・患者のデバイスに紐付け
+
+plat: AI diagnoses on encrypted data — never sees raw genome
+      暗号化したままAIが診断 — 生の遺伝子データは見えない
+
+argo: Prove "low cancer risk" to insurer — without revealing score
+      保険会社に「癌リスク低」を証明 — スコアは見せない
+```
 
 ---
 
@@ -176,6 +209,56 @@ hydeはBitLockerパターンを採用し、TPMのNVメモリ枯渇を防ぐ：
 3. **PQC Layer** — ML-KEM-768 encapsulation per protect call, quantum-resistant AES-256-GCM encryption
 4. **Encryption** — Data is double-encrypted: PQC (inner, chip-independent) + TPM (outer, device-bound)
 
+### What hyde learned from BitLocker / BitLockerから学んだ設計パターン
+
+| BitLocker Concept | hyde Equivalent | Why it matters / なぜ重要か |
+|---|---|---|
+| VMK → FVEK (2-layer key hierarchy) | dk → DataKey | Heavy key (dk) pays cost once; lightweight DataKey rotates per `protect()` call for Forward Secrecy at near-zero cost / 重い鍵は1回、軽い鍵で毎回Forward Secrecyをほぼゼロコストで実現 |
+| Protector (TPM, RecoveryKey, Password) | `RecoveryStrategy` trait | Multiple protection methods guard the same master key — pluggable and extensible / 複数の保護手段で同一マスター鍵を守る。差し替え可能で拡張性あり |
+| 1 NV slot for VMK | 1 NV slot for Primary Key | Unlimited data protected from a single TPM slot — no NV exhaustion / TPM 1スロットで無限のデータを保護。NV枯渇なし |
+| VMK re-wrap on key rotation | `dk` re-seal on PQC chip migration | Only the master key is re-sealed; data is never re-encrypted / マスター鍵のre-sealだけ。データの再暗号化は不要 |
+
+This design ensures that when dedicated PQC hardware chips arrive, migration is a single re-seal operation — not a re-encryption of all data.
+
+この設計により、将来PQC専用チップが登場した際の移行は、dk の re-seal 1回で完了する。全データの再暗号化は不要。
+
+## Security Model / セキュリティモデル
+
+### Threat: SPI Bus Sniffing / 脅威: SPIバス盗聴
+
+When using dTPM (discrete TPM chip), TPM-only mode is vulnerable to SPI bus sniffing attacks.
+
+dTPM（外付けTPMチップ）使用時、TPM-onlyモードはSPIバス盗聴攻撃に対して脆弱。
+
+```
+Attack cost / 攻撃コスト: ~$300 logic analyzer + 10 min physical access
+Attack result / 攻撃結果: dk recovered in plaintext → all DataKeys compromised
+```
+
+**Mitigation (v0.3 planned): PersonBinding / 対策（v0.3予定）: 人物バインディング**
+
+```rust
+// TPM-only (current): device binding only
+let ctx = hyde::auto_detect(FallbackPolicy::Deny)?;
+
+// TPM + PIN (v0.3): device + person binding
+let ctx = hyde::auto_detect(FallbackPolicy::Deny)?
+    .with_person_binding(PersonBinding::Pin)?;
+```
+
+### fTPM vs dTPM
+
+| TPM type | SPI sniffing | Attack difficulty |
+|---|---|---|
+| dTPM (discrete chip) | Possible — $300, 10 min | **Low** |
+| fTPM (CPU-integrated: Intel PTT, AMD fTPM) | Impossible | **Medium** (faulTPM attack requires hours) |
+
+**Recommendation**: fTPM environments have medium security even without PIN. dTPM environments should strongly use PersonBinding.
+
+**推奨**: fTPM環境ではPINなしでも中程度のセキュリティ。dTPM環境ではPersonBindingを強く推奨。
+
+---
+
 ## Recovery / 回復
 
 Passphrase-based backup uses **Argon2id** key derivation + AES-256-GCM:
@@ -250,6 +333,25 @@ cargo check --workspace
 export TCTI="swtpm:host=127.0.0.1,port=2321"
 cargo test --workspace -- --test-threads=1
 ```
+
+## Planned: Person Binding / 計画中: 人物バインディング
+
+TPM-only configuration is vulnerable to SPI bus sniffing attacks ($300 hardware, 10 minutes). v0.3 will add PIN/Passphrase-based person binding to fulfill the "specific person" promise:
+
+TPM-only構成はSPIバス盗聴攻撃（$300の機材・10分）に対して脆弱。v0.3でPIN/パスフレーズによる人物バインディングを追加し、「特定の人物」の約束を実現する：
+
+```rust
+let ctx = hyde::auto_detect(FallbackPolicy::Deny)?
+    .with_person_binding(PersonBinding::Pin)?;
+
+let protected = ctx.protect(secret)?;
+// → dk is sealed with TPM + PIN layer
+// → SPI sniffing alone cannot recover the key
+```
+
+See [docs/hyde-implementation-guide.md](docs/hyde-implementation-guide.md) for the full security analysis.
+
+---
 
 ## Roadmap / ロードマップ
 
