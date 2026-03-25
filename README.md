@@ -163,6 +163,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Key Design: Primary Key + Data Key / 鍵管理の設計
 
+hyde learns from **20 years of BitLocker history** — the most battle-tested full-disk encryption in production. We studied its architecture, key hierarchy, recovery mechanisms, and the real-world failures it solved, then built a modern equivalent for the TEE era.
+
+hydeは**BitLockerの20年の歴史**から学んでいる。プロダクション環境で最も実戦検証されたフルディスク暗号化の設計思想・鍵階層・回復メカニズム・実運用で解決してきた障害を研究し、TEE時代の現代版として再構築した。
+
 hyde uses the **BitLocker pattern** to avoid TPM NV memory exhaustion:
 
 hydeはBitLockerパターンを採用し、TPMのNVメモリ枯渇を防ぐ：
