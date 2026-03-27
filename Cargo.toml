@@ -9,6 +9,7 @@ members = [
 ]
 exclude = [
     "examples/demo-app",
+    "bench/fhe-zkp-feasibility",
 ]
 
 [workspace.package]
