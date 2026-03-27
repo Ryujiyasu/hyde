@@ -288,6 +288,29 @@ let ctx = hyde::auto_detect(FallbackPolicy::Deny)?
 
 **推奨**: fTPM環境ではPINなしでも中程度のセキュリティ。dTPM環境ではPersonBindingを強く推奨。
 
+### Known Physical Threats / 既知の物理攻撃
+
+hyde is aware of these attacks. They are physical — software cannot prevent them. We list them to be honest about what lies outside our trust boundary.
+
+hydeはこれらの攻撃を認識している。物理攻撃であり、ソフトウェアでは防げない。信頼境界の外にあるものを正直に列挙する。
+
+| Attack / 攻撃 | Target / 対象 | Cost / コスト | Description / 概要 | hyde's stance / hydeの立場 |
+|---|---|---|---|---|
+| **SPI bus sniffing** | dTPM | ~$300, 10 min | Logic analyzer on TPM bus captures unsealed keys / SPIバス盗聴でTPM通信を傍受 | Software mitigation: PersonBinding (v0.3) |
+| **Cold boot attack** | DRAM | ~$50, 5 min | Freeze RAM, extract keys from residual charge / RAMを冷却し残留電荷から鍵抽出 | Out of scope — DRAM physics. Memory encryption (Phase 2 TDX/SEV) mitigates |
+| **faulTPM / Voltage glitching** | fTPM | ~$200, hours | Fault injection on CPU to extract fTPM secrets / CPUへの電圧グリッチでfTPM秘密を抽出 | Out of scope — CPU vendor responsibility |
+| **Decapping / Microprobing** | dTPM chip | $10K+, days | Physically open chip, probe internal circuits / チップ開封・内部回路の直接読取 | Out of scope — chip vendor's tamper resistance |
+| **Electromagnetic side-channel** | TPM / CPU | $1K+, hours | Measure EM emanation during crypto operations / 暗号演算中の電磁放射を計測 | Out of scope — chip vendor's shielding |
+| **Power analysis (DPA/SPA)** | TPM | $5K+, hours | Measure power consumption to infer key bits / 消費電力パターンから鍵ビットを推定 | Out of scope — chip vendor's countermeasures |
+| **JTAG / Debug port** | SoC | $100, minutes | Access debug interface left enabled / 有効なままのデバッグポートにアクセス | Out of scope — OEM must disable in production |
+| **Evil maid (hardware implant)** | Motherboard | $500+, minutes | Physically modify hardware to intercept or inject / ハードウェア改ざんによる傍受・注入 | Out of scope — physical access control |
+| **Rowhammer** | DRAM | $0, hours | DRAM bit-flip via repeated memory access / メモリ繰返しアクセスによるビット反転 | Out of scope — DRAM vendor. ECC memory mitigates |
+| **Bus interposer (MitM)** | PCIe / SPI | $1K+, hours | Hardware man-in-the-middle on bus / バス上のハードウェアMitM | Out of scope — physical bus integrity |
+
+These are **not hyde's failures**. They are the boundaries where software ends and physics begins. hyde's job is to make the software layer so solid that the only remaining attacks require physical access — and then honestly say "that part is not ours."
+
+これらは**hydeの欠陥ではない**。ソフトウェアが終わり、物理が始まる境界である。hydeの仕事はソフトウェア層を堅固にし、残る攻撃が物理アクセスを必要とする状態にすること — そして「そこから先は我々の領域ではない」と正直に言うこと。
+
 ---
 
 ## Recovery / 回復
