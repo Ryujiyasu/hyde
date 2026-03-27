@@ -731,3 +731,88 @@ USBに入れても → 開けない
 
 > ファイルがどこにあっても、TPMと時間の条件が揃わないと開けない。
 > hydeは「場所を守る」のではなく「鍵を守る」。
+
+---
+
+## Section L: Ephemeral KEM — Forward Secrecy オプション設計
+
+### 背景と設計選択
+
+ML-KEM秘密鍵(dk)は「1デバイスに1つの長期静的鍵」である。dkが漏洩した場合、そのデバイスで保護した全データが危殆化する。
+
+**これは設計選択であり設計ミスではない。**
+
+- BitLockerのVMKと同じ構造的トレードオフ
+- dk漏洩にはTPMの物理攻撃（SPI sniffing等）が必要 → hydeの脅威モデルの外
+- 脅威モデル内（リモート攻撃・HNDL）ではForward Secrecyは不要
+
+### with_ephemeral_kem() API
+
+高価値データ向けにオプトインで完全なForward Secrecyを提供する。
+
+```rust
+// デフォルト：長期dk、速い
+ctx.protect(secret)?;
+
+// オプトイン：ephemeral dk、遅いが完全なForward Secrecy
+ctx.protect(secret)
+    .with_ephemeral_kem()?;
+```
+
+動作：
+1. `ML-KEM.KeyGen()` → 使い捨ての (ek, dk) を生成（~0.1ms）
+2. `TPM.Create()` → dkをTPM-sealした新しいWrappedKeyを作成（dTPM: ~200-500ms）
+3. `TPM.Unseal()` → dkを復元してAES-GCM暗号化（dTPM: ~100-300ms）
+4. ProtectedData.keyに使い捨てWrappedKeyを格納
+
+### パフォーマンスコスト
+
+| モード | dTPM | fTPM | 備考 |
+|--------|------|------|------|
+| デフォルト（長期dk） | 100-300ms | 30-80ms | Unsealのみ |
+| with_ephemeral_kem() | 300-800ms | 80-180ms | Create + Unseal |
+
+出典: wolfTPMベンチマーク、Chrome TPM signature study (p50: 200ms, p95: 600ms)
+
+1秒未満で完全なForward Secrecy。医療記録、遺言、M&A文書には十分に払う価値がある。
+
+### ProtectedData フォーマット — v2互換
+
+**フォーマット変更不要。** ProtectedData.keyに入るWrappedKeyが長期か使い捨てかの違いだけ。unprotect()側はblobの由来を知る必要がない。
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProtectedData {
+    key: WrappedKey,
+    pub ciphertext: Vec<u8>,
+    #[serde(default)]
+    kem_ciphertext: Option<Vec<u8>>,
+    version: u8,                      // 2のまま
+    #[serde(default)]
+    ephemeral: bool,                  // 追加: 監査・UI用、復号には不要
+}
+```
+
+ephemeralフラグの用途：
+- oxiのUI表示：「🔒 Forward Secrecy保護済み」
+- 監査ログ：「このデータは使い捨て鍵で保護された」
+- 復号には一切不要（`#[serde(default)]`でv2互換）
+
+### ドキュメント修正
+
+README の主張を脅威モデルの範囲に限定した：
+
+```
+Before: ctx.protect() で常に最強の暗号化が適用される
+After:  ctx.protect() でリモート攻撃・HNDL脅威に対して最強の暗号化が自動的に適用される
+```
+
+### 決定事項まとめ
+
+| 項目 | 決定 |
+|------|------|
+| PQC層のForward Secrecy欠如 | 設計選択（BitLocker方式）、脅威モデル外 |
+| with_ephemeral_kem() | オプション実装、dTPM最大~800ms |
+| ProtectedDataフォーマット | v2のまま変更不要 |
+| ephemeralフラグ | 追加（監査・UI用、復号不要、コストゼロ） |
+| ドキュメント修正 | 「常に最強」→「リモート攻撃・HNDL対策として最強」 |

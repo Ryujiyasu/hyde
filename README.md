@@ -106,7 +106,7 @@ hyde v0.2+は、全データを **ML-KEM-768**（NIST FIPS 203）ポスト量子
 - **Layer 2 (TPM)**: Device-binding. Only this TPM can unseal.
 - **Migration**: Only the PQC key needs to be migrated. No re-encryption of data.
 
-開発者はセキュリティレベルを選ぶ必要なし。`ctx.protect()` で常に最強の暗号化が適用される。
+開発者はセキュリティレベルを選ぶ必要なし。`ctx.protect()` でリモート攻撃・HNDL脅威に対して最強の暗号化が自動的に適用される。
 
 ---
 
