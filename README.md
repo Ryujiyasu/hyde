@@ -251,14 +251,20 @@ What hyde can do, hyde does. What hyde can't do, hyde says so honestly. A projec
 
 ### Threat: SPI Bus Sniffing / 脅威: SPIバス盗聴
 
-When using dTPM (discrete TPM chip), TPM-only mode is vulnerable to SPI bus sniffing attacks.
+This is a **physical attack** — a logic analyzer is physically attached to the SPI bus between CPU and dTPM. By hyde's trust boundary, this is fundamentally a **chip vendor's responsibility** (unencrypted bus design). hyde provides software-side mitigation as defense-in-depth, not as a claim to solve a physical problem.
 
-dTPM（外付けTPMチップ）使用時、TPM-onlyモードはSPIバス盗聴攻撃に対して脆弱。
+これは**物理攻撃**である — CPUとdTPM間のSPIバスにロジックアナライザを物理接続する。hydeの信頼境界に従えば、根本原因は**チップベンダーの責任**（バスの平文通信設計）。hydeはdefense-in-depthとしてソフト側の緩和策を提供するが、物理の問題を解決したとは主張しない。
 
 ```
 Attack cost / 攻撃コスト: ~$300 logic analyzer + 10 min physical access
 Attack result / 攻撃結果: dk recovered in plaintext → all DataKeys compromised
 ```
+
+| Solution / 解決策 | Layer / レイヤー | Approach / 手段 |
+|---|---|---|
+| **Root fix** / 根本解決 | Physical (vendor) | Use fTPM — no external bus exists / fTPM使用。バスが存在しない |
+| **Software mitigation** / ソフト緩和 | hyde (v0.3) | PersonBinding — sniffed data alone is useless / PIN必須化。盗聴だけでは無意味 |
+| ~~Phase 2 (TDX/SEV-SNP)~~ | Cloud memory | Does **not** solve SPI sniffing — different threat layer / SPI盗聴とは別レイヤーの脅威 |
 
 **Mitigation (v0.3 planned): PersonBinding / 対策（v0.3予定）: 人物バインディング**
 
