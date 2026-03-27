@@ -65,9 +65,13 @@ hydeはこの現実にフェーズで対応する：
 | **Phase 1 (current)** | Complete protection in one-person-one-device environments / 1人1デバイス環境での完全な保護 |
 | **Phase 2 (planned)** | TDX/SEV-SNP creates a pseudo one-person-one-environment, even on shared infrastructure / 共有インフラ上でも擬似的な1人1環境を実現 |
 
-Ultimately, hyde's design philosophy may motivate the creation of an OS built from the ground up around this trust model — **hydeOS**.
+The core design insight: **"There is no perfect safety. Minimize and push the trust boundary to the edge."**
 
-最終的に、hydeの設計思想はこの信頼モデルを前提としたOS — **hydeOS** — の開発動機となりうる。
+設計思想の核心：**「完全な安全はない。信頼が必要な範囲を、できる限り小さく・末端にする。」**
+
+This insight may ultimately motivate the creation of an OS built from the ground up around this trust model — **hydeOS**.
+
+この洞察は最終的に、hydeの信頼モデルを前提としたOS — **hydeOS** — の開発動機となりうる。
 
 ---
 
@@ -135,6 +139,18 @@ All modules share hyde's TPM trust chain as the key management foundation.
 
 全モジュールがhydeのTPM信頼チェーンを鍵管理の基盤として共有。
 
+### Each Module's Limits / 各モジュールの限界
+
+These limits are not defects — they are fundamental constraints that no cryptographic technology can transcend.
+
+これらの限界は欠陥ではなく、どんな暗号技術も超えられない本質的な制約である。
+
+| Module | Limit / 限界 | Mitigation / 補完 |
+|---|---|---|
+| **hyde** | Cannot defeat admin privileges / 管理者権限には勝てない | Phase 2 (TDX/SEV-SNP) |
+| **plat** | Cannot guarantee input authenticity / 入力の真正性は保証できない | IoT + TPM (hyde) |
+| **argo** | Cannot prove correspondence with physical reality / 現実世界との一致は証明できない | Oracle problem — fundamental |
+
 ### The Vision / ビジョン
 
 Together, these three modules enable a world where **social trust can be established without ever exposing data**.
@@ -155,7 +171,29 @@ argo: Prove "low cancer risk" to insurer — without revealing score
       保険会社に「癌リスク低」を証明 — スコアは見せない
 ```
 
-### The Endgame / 完成形
+### The Endgame: Physical-to-Blockchain Bridge / 完成形：物理とブロックチェーンの接続
+
+**"A bridge that connects physical-world trust to the digital world."**
+
+**「物理世界の信頼をデジタル世界に接続する橋」**
+
+```
+TPM chip (physical — EK burned at manufacture)
+TPMチップ（物理・製造時にEK焼き付け）
+  ↓ Hardware signature / ハードウェア署名
+Data, photos, CO2 emissions (digital)
+データ・写真・CO2排出量（デジタル）
+  ↓ argo (ZKP) proves facts / argoで証明
+Blockchain (immutable permanent record)
+ブロックチェーン（改ざん不可能な永続記録）
+```
+
+**Applications / 応用**:
+- CO2 emissions: privacy-preserving computation (Scope 3 calculation) / CO2排出量の秘匿計算（Scope3算定）
+- Photo authenticity: cryptographic proof (C2PA alternative) / 写真の真正性証明（C2PA代替）
+- Medical records: patient-sovereign management / 医療カルテの患者主体管理
+- Vehicle data × taxation: privacy-preserving compliance / 自動車走行データ × 税制
+- Age verification: zero-knowledge proof / 年齢確認の秘匿証明
 
 **"Mathematically proven digital society infrastructure where no one needs to be trusted."**
 
@@ -180,24 +218,24 @@ The logical conclusion of this philosophy: an operating system built from the gr
 
 ## Positioning: hyde vs BitLocker / ポジショニング
 
-hyde is **not** a BitLocker replacement. hyde solves problems that BitLocker cannot:
+hyde is **not** a BitLocker replacement. They are not even comparable — they solve fundamentally different problems.
 
-hydeはBitLockerの**代替ではない**。BitLockerが解けない問題を解く：
+hydeはBitLockerの**代替ではない**。比較対象ですらない — 解く問題が根本的に異なる。
 
-| Capability | BitLocker | hyde |
+| | BitLocker | hyde |
 |---|---|---|
-| Full-disk encryption / ディスク全体暗号化 | ✅ Core purpose | ❌ Not hyde's job |
-| **Application-level PQC encryption** / アプリレベルPQC暗号化 | ❌ | ✅ ML-KEM-768, always-on |
-| **One-line developer API** / 開発者向け一行API | ❌ | ✅ `ctx.protect(secret)?` |
-| **Cross-platform** / クロスプラットフォーム | ❌ Windows only | ✅ Linux, Windows, (Phase 3: macOS, mobile) |
-| **Per-file encryption** / ファイル単位の暗号化 | ❌ Volume-level | ✅ Per `protect()` call |
-| **Post-quantum resistant** / 耐量子 | ❌ | ✅ ML-KEM-768 (NIST FIPS 203) |
-| Admin privilege escalation / 管理者権限奪取 | ❌ Out of scope | ❌ Out of scope (Phase 2) |
+| **What it protects** / 何を守るか | Entire volume / ディスク全体 | Application data, per object / アプリデータ、オブジェクト単位 |
+| **Encryption** / 暗号化 | AES (classical) | ML-KEM-768 + AES-256-GCM (post-quantum) |
+| **API** | None (OS-level) | `ctx.protect(secret)?` — one line |
+| **Platform** | Windows only | Linux, Windows (Phase 3: macOS, mobile) |
+| **Granularity** / 粒度 | Volume-level | Per `protect()` call |
+| **Quantum resistant** / 耐量子 | ❌ | ✅ NIST FIPS 203 |
+| Admin escalation / 管理者権限奪取 | ❌ Out of scope | ❌ Out of scope (Phase 2) |
 | Physical attacks / 物理攻撃 | ❌ Out of scope | ❌ Out of scope (vendor) |
 
-Both BitLocker and hyde share the same honest limitation: neither defends against admin escalation or physical attacks in their current form. The difference is what they **do** protect — BitLocker protects volumes, hyde protects application data with quantum-resistant, device-bound, per-object encryption.
+Both BitLocker and hyde honestly share the same Phase 1 limitation: neither defends against admin escalation or physical attacks. The difference is that hyde's Phase 2 plans to address what BitLocker never will.
 
-BitLockerとhydeは同じ誠実な限界を共有する：現時点では両者とも管理者権限奪取・物理攻撃は守備範囲外。違いは**何を守るか** — BitLockerはボリュームを、hydeはアプリケーションデータを量子耐性・デバイスバインド・オブジェクト単位で守る。
+BitLockerもhydeもPhase 1では同じ誠実な限界を共有する。違いはhydeのPhase 2がBitLockerが永遠にスコープに入れない問題を解く予定であること。
 
 ---
 
@@ -318,6 +356,22 @@ What hyde can do, hyde does. What hyde can't do, hyde says so honestly. A projec
 
 ### Scope / 守備範囲
 
+**hyde is not a security tool. hyde is privacy infrastructure.**
+
+**hydeはセキュリティツールではない。プライバシーインフラである。**
+
+The question hyde answers is not "can bad actors get in?" (security), but **"can even authorized parties see the data?"** (privacy). Security improvements are a side effect.
+
+hydeが解く問いは「悪い人が入ってこれないか」（セキュリティ）ではなく、**「正規のアクセス権者を含む第三者にも見せない」**（プライバシー）。セキュリティの向上はその副産物である。
+
+**Data sovereignty through responsibility**:
+
+**責任によるデータ主権**：
+
+- If encrypted data leaks → data is still protected (hyde's guarantee) / 暗号化データが漏洩 → データは守られる（hydeの保証）
+- If the key (TPM) is stolen → device owner's responsibility / 鍵（TPM）が盗まれた場合 → デバイス所有者の責任
+- This is what it means to return data sovereignty to the user / これがデータの主体権をユーザーに返すことの意味
+
 What hyde does **not** defend against in Phase 1 — and this is the same position as BitLocker:
 
 Phase 1でhydeが守備範囲と**しないもの** — これはBitLockerと同じ立場である：
@@ -328,9 +382,9 @@ Phase 1でhydeが守備範囲と**しないもの** — これはBitLockerと同
 | Physical attacks (SPI sniffing) / 物理攻撃 | Out of scope (PersonBinding mitigates) | Out of scope | Chip vendor |
 | Cloud admin memory access / クラウド管理者 | Out of scope | **In scope** — hardware memory encryption | Cloud TEE |
 
-Phase 2 (TDX/SEV-SNP) brings admin escalation and cloud admin attacks **into scope** by creating hardware-isolated execution environments. Physical attacks remain the chip vendor's domain across all phases.
+Phase 1's scope matches BitLocker's. Phase 2 (TDX/SEV-SNP) goes beyond BitLocker by bringing admin escalation and cloud admin attacks **into scope**. Physical attacks remain the chip vendor's domain across all phases.
 
-Phase 2（TDX/SEV-SNP）は管理者権限奪取とクラウド管理者攻撃をハードウェア隔離環境により**守備範囲に入れる**。物理攻撃は全フェーズを通じてチップベンダーの領域。
+Phase 1のスコープはBitLockerと同じ。Phase 2（TDX/SEV-SNP）はBitLockerがスコープに入れていない問題 — 管理者権限奪取とクラウド管理者攻撃 — をハードウェア隔離環境により**守備範囲に入れる**。物理攻撃は全フェーズを通じてチップベンダーの領域。
 
 ---
 
