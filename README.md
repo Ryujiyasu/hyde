@@ -226,13 +226,13 @@ This design ensures that when dedicated PQC hardware chips arrive, migration is 
 
 ### Trust Boundary / 信頼境界：ソフトウェアでできることの限界
 
-hyde trusts physics, nothing else. If the chip is broken, that's the vendor's fault — not a design failure.
+**hyde trusts only what humans cannot alter: physics and mathematics.**
 
-hydeは物理を信じる。それ以外は信じない。チップが破られたらベンダーの責任 — hydeの設計破綻ではない。
+**hydeが信じるのは、人間が変えられないものだけ — 物理と数学。**
 
-Software cannot touch physics. hyde recognizes this boundary and does the best possible within it.
+Physical laws cannot be rewritten remotely. Mathematical proofs cannot be negotiated down. Everything else — admin privileges, policies, goodwill — hyde eliminates structurally.
 
-ソフトウェアは物理に触れない。hydeはその限界を見定め、その中で最善を尽くす。
+物理法則は遠隔で書き換えられない。数学的証明は交渉で下げられない。それ以外の全て — 管理者権限、ポリシー、善意 — hydeは構造で排除する。
 
 | Layer / レイヤー | Trust / 信頼 | Responsibility / 責任 | Approach / 手段 |
 |---|---|---|---|
