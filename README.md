@@ -283,11 +283,103 @@ Recovery strategies are pluggable via the `RecoveryStrategy` trait:
 
 回復方式は `RecoveryStrategy` トレイトにより差し替え可能：
 
-| Strategy | Description |
-|----------|-------------|
-| `PassphraseRecovery` | Argon2id + AES-256-GCM (default) |
-| `RecoveryKey` (planned) | One-time random key displayed once |
-| `ShamirRecovery` (planned) | N-of-M secret sharing |
+| Strategy | 日本語 | Description |
+|----------|--------|-------------|
+| `PassphraseRecovery` | パスフレーズ復元 | Argon2id + AES-256-GCM (default) |
+| `RecoveryKey` (planned) | 回復キー復元 | One-time random key displayed once |
+| `WitnessRecovery` (planned) | 立会人復元 | N-of-M Shamir, multi-device binding |
+
+### WitnessRecovery / 立会人復元
+
+N-of-M Shamir Secret Sharing with multi-device binding. Witnesses approve recovery via biometric authentication on their devices.
+
+N-of-M シャミア秘密分散＋複数デバイスバインド。立会人が自分のデバイスで生体認証により復元を承認する。
+
+```
+Recovery request / 復元要求
+  ↓
+Push notification to witness devices / 立会人デバイスにプッシュ通知
+「復元を要求しています。承認しますか？」
+  ↓
+Approve with biometrics / 承認ボタン（生体認証）
+  ↓
+N-of-M threshold reached → auto-recover / N-of-M達成 → 自動復元
+  ↓
+Audit log generated (who approved, when) / 監査ログ自動生成（誰がいつ承認したか）
+```
+
+**Metadata is public by design** — knowing who the witnesses are is harmless. Only the shard values are secret. Even if an attacker learns who holds shards, they cannot recover the secret without physically obtaining the shards.
+
+**条件メタデータは公開設計** — 誰が立会人かは公開してよい。シャードの値だけが秘密。攻撃者が「誰が持っているか」を知っても、シャードを物理取得しない限り意味がない。
+
+### Security Grades / セキュリティグレード設計
+
+```rust
+// Level 1: General users / 一般ユーザー
+ctx.protect(secret)?;
+
+// Level 2: Enterprise / 企業・組織
+ctx.protect(secret)
+    .with_witness(3, witnesses)?;
+
+// Level 3: Government & Defense / 政府・防衛
+ctx.protect(secret)
+    .with_witness(3, witnesses)
+    .with_duress_pin()?;
+```
+
+---
+
+## Problems hyde Solves / hydeが解決する問題
+
+### Physical Destruction / 物理破壊問題
+
+Recovery paths are layered with OR conditions, eliminating single points of failure. PC destroyed → recover with phone. Phone destroyed → recover with witnesses. Each layer's security strength is independently maintained.
+
+復元経路をOR条件で複数層用意することで単一障害点を排除。PCが壊れてもスマホで復元、スマホも壊れても立会人で復元。各層のセキュリティ強度は独立して保たれる。
+
+### Insider Threat (The Vault Problem) / 金庫問題（内部犯行）
+
+N-of-M design makes unauthorized solo access structurally impossible. Audit logs record even collusion attempts. This structurally eliminates the classic "keyholder insider attack" that traditional vaults have always faced.
+
+N-of-M設計により単独での不正アクセスが構造的に不可能。監査ログにより共謀も記録される。従来の金庫が抱えてきた「鍵管理者による内部犯行」を構造的に排除する。
+
+### Coerced Approval / 強制承認問題
+
+Solved by policy, not technology. "Never approve under duress" is hyde's organizational operating principle — making coercion itself a deterrent. **Zero Negotiation Principle**.
+
+技術ではなくポリシーで解決。「脅されても承認しない」をhydeの組織運用原則とすることで、脅しそのものの抑止力になる。**ゼロ交渉原則**。
+
+---
+
+## What Zero Trust Really Means / Zero Trust の本当の意味
+
+The industry's "Zero Trust" stops at network design. hyde's Zero Trust means **never trusting the platform provider itself**.
+
+世間の「Zero Trust」はネットワーク設計の話にとどまる。hydeの Zero Trust は**プラットフォーマー自身を信じない**設計。
+
+- Cloud providers see only ciphertext / クラウド事業者は暗号文しか見えない
+- Infrastructure providers cannot access data / インフラ提供者はデータにアクセスできない
+- Admin privileges cannot decrypt / 管理者権限があっても復号不可能
+
+---
+
+## Future Vision: IoT × argo / 将来構想：IoT × argo
+
+Embed TPM chips (ATECC608 etc.) into mailboxes, ballot boxes, delivery chains, and combine with argo's ZKP to build social infrastructure that **proves facts while keeping contents secret**.
+
+郵便受け・投票箱・配送チェーン等にTPMチップ（ATECC608等）を埋め込み、argoのZKPと組み合わせることで「中身を秘匿したまま事実だけ証明」できる社会インフラを実現する。
+
+```
+Mailbox with TPM chip / 郵便受けTPMチップ
+  → Signs at the moment of delivery / 投函の瞬間に署名
+  → ZKP proves "delivery happened" / ZKPで「届いた事実」を証明
+  → No one sees the contents / 中身は誰も見ていない
+  → But "delivered" is mathematically provable / でも「届いた」は数学的に証明可能
+
+"Trustworthy social infrastructure without trusting any person"
+「信頼できる人間がいなくても信頼できる社会インフラ」
+```
 
 ## Workspace Structure / ワークスペース構成
 
