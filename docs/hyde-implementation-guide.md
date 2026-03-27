@@ -1933,6 +1933,182 @@ plat::compute(data, model)
 | 最初のターゲット（plat） | 医療診断AI（遺伝子データの機密計算） |
 | エコシステム全体の意義 | データを一切公開せずに社会的信頼を構築する世界 |
 
+---
+
+## 設計思想の整理（2026-03-27追記）
+
+### hydeの信頼モデル
+
+**hydeが信じるのは、人間が変えられないものだけ — 物理と数学。**
+
+物理法則は遠隔で書き換えられない。数学的証明は交渉で下げられない。それ以外の全て — 管理者権限、ポリシー、善意 — hydeは構造で排除する。
+
+### 1人1デバイスの理想
+
+hydeは1人1デバイスを信頼モデルの理想とする。マルチユーザーOSは「管理者権限」という概念を生み出し、ソフトウェアレベルのセキュリティの根本的な限界を作った。これはhydeのバグではなく、OSの設計思想との不整合である。
+
+| Phase | アプローチ |
+|---|---|
+| Phase 1 | 1人1デバイス環境での完全な保護 |
+| Phase 2 | TDX/SEV-SNPで擬似的な1人1環境を実現 |
+
+設計思想の核心：**「完全な安全はない。信頼が必要な範囲を、できる限り小さく・末端にする。」**
+
+この洞察はhydeOSという将来の開発動機となりうる。
+
+### hydeはプライバシーインフラである
+
+hydeはセキュリティツールではなくプライバシーインフラ。
+
+- 「悪い人が入ってこれないか」（セキュリティ）ではなく
+- 「正規のアクセス権者を含む第三者にも見せない」（プライバシー）を解く
+- セキュリティの向上はその副産物
+
+責任の所在：
+- 暗号化されたデータが漏洩してもデータは守られる → hydeの保証
+- 鍵（TPM）が盗まれた場合はデバイス所有者の責任
+- これがデータの主体権をユーザーに返すことの意味
+
+### スコープ（守備範囲）
+
+Phase 1のスコープはBitLockerと同じ立場：
+
+| 脅威 | Phase 1 | Phase 2 (TDX/SEV-SNP) | 責任 |
+|---|---|---|---|
+| 管理者権限奪取（RAT・マルウェア） | スコープ外 | **スコープ内** — 隔離VM | OS / エンドポイント |
+| 物理攻撃（SPI傍受） | スコープ外（PersonBindingで緩和） | スコープ外 | チップベンダー |
+| クラウドAdmin | スコープ外 | **スコープ内** — HWメモリ暗号化 | クラウドTEE |
+
+Phase 2（TDX/SEV-SNP）でBitLockerがスコープに入れていない問題を解く。
+
+### ポジショニング
+
+hydeはBitLockerの代替ではない。比較対象ですらない：
+
+| | BitLocker | hyde |
+|---|---|---|
+| 守るもの | ディスク全体 | アプリデータ（オブジェクト単位） |
+| 暗号化 | AES（古典） | ML-KEM-768 + AES-256-GCM（耐量子） |
+| API | なし（OS級） | `ctx.protect(secret)?` — 一行 |
+| プラットフォーム | Windows only | Linux, Windows（Phase 3: macOS, mobile） |
+| 粒度 | ボリューム | `protect()` 呼び出し単位 |
+
+### 各モジュールの限界
+
+これらの限界は欠陥ではなく、どんな暗号技術も超えられない本質的な制約：
+
+| モジュール | 限界 | 補完 |
+|---|---|---|
+| hyde | 管理者権限には勝てない | Phase 2 (TDX/SEV-SNP) |
+| plat | 入力の真正性は保証できない | IoT + TPM (hyde) |
+| argo | 現実世界との一致は証明できない | オラクル問題 — 根本的制約 |
+
+### 物理→ブロックチェーン接続（エコシステム完成形）
+
+```
+TPMチップ（物理・製造時にEK焼き付け）
+  ↓ ハードウェア署名（hyde）
+データ・写真・CO2排出量（デジタル）
+  ↓ ゼロ知識証明（argo）
+ブロックチェーン（改ざん不可能な永続記録）
+```
+
+「物理世界の信頼をデジタル世界に接続する橋」
+
+応用：
+- CO2排出量の秘匿計算（Scope3算定）
+- 写真の真正性証明（C2PA代替）
+- 医療カルテの患者主体管理
+- 自動車走行データ × 税制
+- 年齢確認の秘匿証明
+
+### argoの入力バリデーション層構造
+
+「ゴミを入れればゴミが出る」問題への対処：
+
+```
+Layer 0：IoTセンサー + TPM（hyde）
+  物理世界の測定値をハードウェアで署名
+  → 虚偽値申告を防ぐ
+
+Layer 1：ZKP（argo）+ FHEフォーマット証明
+  暗号化時にフォーマットの正しさをZKPで証明
+  → ゴミデータを暗号化前に排除
+  参考：TFHE-rsのZKP機能・ZHE（IEEE S&P 2025）
+
+Layer 2：plat（FHE）
+  暗号化されたまま集計演算
+
+Layer 3：argo（ZKP）
+  計算プロセスの正しさを証明
+```
+
+| Layer | 防ぐもの | 防げないもの |
+|---|---|---|
+| 0 (IoT + TPM) | 虚偽申告 | センサー誤差（ベンダー責任） |
+| 1 (ZKP format) | 不正フォーマット | 意味的な誤り |
+| 2 (FHE) | データ露出 | 入力真正性 |
+| 3 (ZKP proof) | 計算不正 | 入力の真実性 |
+
+Layer 0で物理的に防ぐ → Layer 1でフォーマット的に防ぐ → Layer 2・3では計算の正しさのみを担保。
+
+### WitnessRecovery（立会人復元）
+
+N-of-M シャミア秘密分散＋複数デバイスバインド。
+
+```
+復元要求
+  ↓
+立会人デバイスにプッシュ通知
+  ↓
+承認ボタン（生体認証）
+  ↓
+N-of-M達成 → 自動復元
+  ↓
+監査ログ自動生成（誰がいつ承認したか）
+```
+
+条件メタデータは公開設計。攻撃者が「誰が持っているか」を知っても、シャードを物理取得しない限り意味がない。
+
+セキュリティグレード設計：
+```rust
+// Level 1：一般ユーザー
+ctx.protect(secret)?;
+
+// Level 2：企業・組織
+ctx.protect(secret)
+    .with_witness(3, witnesses)?;
+
+// Level 3：政府・防衛
+ctx.protect(secret)
+    .with_witness(3, witnesses)
+    .with_duress_pin()?;
+```
+
+解決する問題：
+- **物理破壊問題**：復元経路をOR条件で複数層。単一障害点排除。
+- **金庫問題（内部犯行）**：N-of-M設計により単独での不正アクセスが構造的に不可能。
+- **強制承認問題**：技術ではなくポリシーで解決。ゼロ交渉原則。
+
+### 既知の物理攻撃一覧
+
+hydeはこれらの攻撃を認識している。物理攻撃であり、ソフトウェアでは防げない：
+
+| 攻撃 | 対象 | コスト | hydeの立場 |
+|---|---|---|---|
+| SPI bus sniffing | dTPM | ~$300, 10min | ソフト緩和: PersonBinding (v0.3) |
+| Cold boot attack | DRAM | ~$50, 5min | スコープ外。Phase 2 TDX/SEVで緩和 |
+| faulTPM / Voltage glitching | fTPM | ~$200, hours | スコープ外。CPUベンダー責任 |
+| Decapping / Microprobing | dTPMチップ | $10K+, days | スコープ外。チップベンダーの耐タンパ |
+| EM side-channel | TPM/CPU | $1K+, hours | スコープ外。チップのシールディング |
+| Power analysis (DPA/SPA) | TPM | $5K+, hours | スコープ外。チップの対策 |
+| JTAG / Debug port | SoC | $100, min | スコープ外。OEMが本番で無効化すべき |
+| Evil maid | マザーボード | $500+, min | スコープ外。物理アクセス管理 |
+| Rowhammer | DRAM | $0, hours | スコープ外。ECC memoryで緩和 |
+| Bus interposer (MitM) | PCIe/SPI | $1K+, hours | スコープ外。物理バス完全性 |
+
+これらはhydeの欠陥ではない。ソフトウェアが終わり、物理が始まる境界。
+
 ## 参考資料
 
 - [tss-esapi crate](https://docs.rs/tss-esapi/)
@@ -1940,6 +2116,8 @@ plat::compute(data, model)
 - [swtpm - Software TPM Emulator](https://github.com/stefanberger/swtpm)
 - [BitLocker Overview — Microsoft Learn](https://learn.microsoft.com/en-us/windows/security/operating-system-security/data-protection/bitlocker/)
 - [Azure Confidential Computing — Intel TDX](https://learn.microsoft.com/en-us/azure/confidential-computing/)
+- TFHE-rs ZKP features: Zero-knowledge proofs for FHE ciphertext validity
+- ZHE (IEEE S&P 2025): Zero-knowledge proofs for homomorphic encryption
 
 ---
 
