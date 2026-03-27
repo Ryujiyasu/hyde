@@ -224,6 +224,31 @@ This design ensures that when dedicated PQC hardware chips arrive, migration is 
 
 ## Security Model / セキュリティモデル
 
+### Trust Boundary / 信頼境界：ソフトウェアでできることの限界
+
+hyde trusts physics, nothing else. If the chip is broken, that's the vendor's fault — not a design failure.
+
+hydeは物理を信じる。それ以外は信じない。チップが破られたらベンダーの責任 — hydeの設計破綻ではない。
+
+Software cannot touch physics. hyde recognizes this boundary and does the best possible within it.
+
+ソフトウェアは物理に触れない。hydeはその限界を見定め、その中で最善を尽くす。
+
+| Layer / レイヤー | Trust / 信頼 | Responsibility / 責任 | Approach / 手段 |
+|---|---|---|---|
+| Physical chip (TPM, ATECC608) | **Trust** | Chip vendor | Out of scope — hardware tamper resistance |
+| OS / Firmware | **Don't trust** | hyde | PCR measurement and verification |
+| Cloud provider | **Don't trust** | hyde | Encryption excludes access |
+| Admin privileges | **Don't trust** | hyde | Structural exclusion |
+| Humans (including witnesses) | **Don't trust** | hyde | N-of-M + audit logs |
+| Coercion | **Can't solve with tech** | Policy | Zero Negotiation Principle |
+
+What hyde can do, hyde does. What hyde can't do, hyde says so honestly. A project that states what it **cannot** protect is one whose claims about what it **can** protect are credible.
+
+できることはやる。できないことはできないと言う。「何を守れないか」を明言するプロジェクトは、「何を守れるか」の部分が信用できる。
+
+---
+
 ### Threat: SPI Bus Sniffing / 脅威: SPIバス盗聴
 
 When using dTPM (discrete TPM chip), TPM-only mode is vulnerable to SPI bus sniffing attacks.
