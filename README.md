@@ -590,11 +590,11 @@ Today / 今:
 
 With hyde / hydeの世界:
   Encrypted copies exist in all 47 prefectures / 暗号化コピーが47都道府県にある
-  No prefecture needs to read the data — processing happens on ciphertext (FHE)
-  どの県もデータを読む必要がない — 暗号文のまま処理する（FHE）
-  Citizen moves → transfer processed without anyone seeing personal data
-  住民が転出 → 個人情報を誰も見ずに転入処理が完了
-  → No paperwork. No leak risk. No human eyes on data. / 手続き不要。漏洩リスクなし。人の目に触れない。
+  Each prefecture can only see aggregate data of its own residents — never individual records
+  各県は自県民の合算データしか見れない — 個人の記録は見えない
+  Processing happens on ciphertext (FHE), individual data never decrypted
+  処理は暗号文のまま行われ（FHE）、個人データは復号されない
+  → No paperwork. No leak risk. Only aggregates visible. / 手続き不要。漏洩リスクなし。見えるのは合算値だけ。
 
 Medical records / 医療データ:
   Patient records exist at every hospital (encrypted) / 全病院にカルテが存在（暗号化）
