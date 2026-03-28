@@ -607,6 +607,35 @@ The key principle / 設計原則:
   「データはどこにでもある。誰も読む必要がない。処理は暗号文のまま行われる。」
 ```
 
+### Privacy by Elimination / プライバシー問題の消滅
+
+hyde does not "protect" privacy — it **eliminates the privacy problem entirely**. Privacy regulations (GDPR, APPI, etc.) govern the "handling of personal data." If you only handle ciphertext, you are not handling personal data. The legal and compliance burden disappears.
+
+hydeはプライバシーを「守る」のではない — **プライバシー問題そのものを消滅させる**。個人情報保護法（GDPR、APPI等）が規制しているのは「個人情報の取扱い」。暗号文しか扱わないなら、そもそも「個人情報を取り扱って」いない。法的・コンプライアンス上の負担が消える。
+
+```
+Traditional / 従来:
+  Data is visible → privacy protection required
+  データが見える → プライバシー保護が必要
+  → Privacy policies / プライバシーポリシー
+  → Consent management / 同意管理
+  → Anonymization / 匿名化処理
+  → Breach notification obligations / 漏洩時の報告義務
+  → All of this = cost and legal risk / これら全て＝コストと法的リスク
+
+hyde:
+  Data is never visible → privacy problem does not exist
+  データが見えない → プライバシー問題が発生しない
+  → "What is never seen cannot be leaked"
+  → 「見えないものは漏洩しない」
+  → Legal risk: zero / 法的リスク: ゼロ
+  → Compliance cost: near zero / コンプライアンスコスト: ほぼゼロ
+```
+
+**Privacy is not "protected." It is structurally unnecessary to protect, because the data is never exposed.**
+
+**プライバシーは「守られる」のではない。データが露出しないので、守る必要が構造的に存在しない。**
+
 ## Workspace Structure / ワークスペース構成
 
 ```
