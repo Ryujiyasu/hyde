@@ -8,7 +8,7 @@ pub mod protected;
 pub mod recovery;
 pub mod security_level;
 
-pub use context::{FallbackPolicy, HydeContext, ProtectedData};
+pub use context::{FallbackPolicy, HydeContext, PqcAlgorithm, ProtectedData};
 pub use error::{HydeError, Result};
 pub use passphrase::PassphraseRecovery;
 pub use protected::Protected;

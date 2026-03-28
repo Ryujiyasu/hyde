@@ -73,6 +73,7 @@ impl HydeContext {
             ciphertext,
             kem_ciphertext: Some(kem_ciphertext),
             version: 2,
+            pqc_algorithm: PqcAlgorithm::MlKem768,
         })
     }
 
@@ -110,7 +111,7 @@ impl HydeContext {
         self.finalize_unprotect(protected, inner)
     }
 
-    /// Post-process unsealed data: apply PQC decryption for v2, pass through for v1.
+    /// Post-process unsealed data: apply PQC decryption for v2+, pass through for v1.
     fn finalize_unprotect(&self, protected: &ProtectedData, inner: Vec<u8>) -> Result<Vec<u8>> {
         match protected.version {
             2 => {
@@ -118,7 +119,13 @@ impl HydeContext {
                     .kem_ciphertext
                     .as_ref()
                     .ok_or(HydeError::InvalidKey)?;
-                pqc::pqc_decrypt(&self.pqc_keypair.dk, kem_ct, &inner)
+                match protected.pqc_algorithm {
+                    PqcAlgorithm::MlKem768 => {
+                        pqc::pqc_decrypt(&self.pqc_keypair.dk, kem_ct, &inner)
+                    }
+                    // Future algorithms would be dispatched here:
+                    // PqcAlgorithm::MlKem1024 => pqc_1024::decrypt(...)
+                }
             }
             _ => Ok(inner), // v1 legacy: inner is already plaintext
         }
@@ -198,7 +205,24 @@ impl HydeContext {
             ciphertext: ciphertext.to_vec(),
             kem_ciphertext: None,
             version: 1,
+            pqc_algorithm: PqcAlgorithm::default(),
         })
+    }
+}
+
+/// PQC algorithm identifier for forward compatibility.
+/// If ML-KEM-768 is ever deprecated, new algorithms can be added here
+/// without breaking existing data (old data retains its algorithm tag).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PqcAlgorithm {
+    /// ML-KEM-768 (NIST FIPS 203). Default since v2.
+    MlKem768,
+    // Future: MlKem1024, ClassicMcEliece, etc.
+}
+
+impl Default for PqcAlgorithm {
+    fn default() -> Self {
+        PqcAlgorithm::MlKem768
     }
 }
 
@@ -212,4 +236,8 @@ pub struct ProtectedData {
     #[serde(default)]
     kem_ciphertext: Option<Vec<u8>>,
     version: u8,
+    /// PQC algorithm used for this data. Enables future algorithm migration
+    /// without breaking existing encrypted data.
+    #[serde(default)]
+    pqc_algorithm: PqcAlgorithm,
 }
