@@ -547,13 +547,13 @@ Solved by technology, not policy. With TPMs distributed across physically separa
 
 ## What Zero Trust Really Means / Zero Trust の本当の意味
 
-The industry's "Zero Trust" stops at network design. hyde's Zero Trust means **never trusting the platform provider itself**.
+The industry's "Zero Trust" stops at network design. hyde's Zero Trust means **trusting only physics and mathematics — nothing else**.
 
-世間の「Zero Trust」はネットワーク設計の話にとどまる。hydeの Zero Trust は**プラットフォーマー自身を信じない**設計。
+世間の「Zero Trust」はネットワーク設計の話にとどまる。hydeの Zero Trust は**物理法則と数学だけを信じる — それ以外は何も信じない**設計。
 
-- Cloud providers see only ciphertext / クラウド事業者は暗号文しか見えない
-- Infrastructure providers cannot access data / インフラ提供者はデータにアクセスできない
-- Admin privileges cannot decrypt (FixedTPM enforced by hardware) / 管理者権限があっても復号不可能（FixedTPMによりハードウェアが強制）
+- Physics: TPM hardware refuses key extraction (FixedTPM) / 物理: TPMハードウェアが鍵取り出しを拒否
+- Mathematics: PQC encryption is computationally unbreakable / 数学: PQC暗号は計算的に解読不能
+- Everything else is untrusted: cloud providers, admins, OS, network / それ以外は全て信頼しない: クラウド事業者、管理者、OS、ネットワーク
 
 ---
 
