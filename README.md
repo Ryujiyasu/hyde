@@ -574,6 +574,37 @@ Mailbox with TPM chip / 郵便受けTPMチップ
 「信頼できる人間がいなくても信頼できる社会インフラ」
 ```
 
+### Data Sovereignty at Scale / データ主権の社会実装
+
+hyde's design principle — "data everywhere, readable by no one" — enables a new model of data sharing across organizational boundaries.
+
+hydeの設計原則 — 「データはどこにでもある、でも誰にも読めない」— は組織の壁を越えたデータ共有の新しいモデルを可能にする。
+
+```
+Example: Cross-prefecture citizen data / 例：県をまたいだ住民データ
+
+Today / 今:
+  Data siloed per prefecture / 県ごとにサイロ化
+  Sharing requires complex procedures / 共有には煩雑な手続き
+  Leak risk prevents sharing / 漏洩リスクで共有できない
+
+With hyde / hydeの世界:
+  Encrypted copies exist in all 47 prefectures / 暗号化コピーが47都道府県にある
+  Each prefecture can only read its own residents / 各県は自県民のデータしか読めない
+  Citizen moves to another prefecture → consents via personal TPM
+  住民が転出 → 本人のTPMで転出先に権限付与
+  → No paperwork. No leak risk. Instant. / 手続き不要。漏洩リスクなし。即時。
+
+Medical records / 医療データ:
+  Patient records exist at every hospital (encrypted) / 全病院にカルテが存在（暗号化）
+  Patient consents → that hospital's TPM decrypts / 患者が同意 → その病院のTPMだけが復号
+  Other hospitals see nothing / 他の病院には見えない
+
+The key principle / 設計原則:
+  "Data is everywhere. But only the data subject decides who can read it."
+  「データはどこにでもある。でも誰が読めるかは本人だけが決める。」
+```
+
 ## Workspace Structure / ワークスペース構成
 
 ```
