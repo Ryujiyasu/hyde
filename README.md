@@ -348,7 +348,7 @@ Physical laws cannot be rewritten remotely. Mathematical proofs cannot be negoti
 | Cloud provider | **Don't trust** | hyde | Encryption excludes access |
 | Admin privileges | **Don't trust** | hyde | Structural exclusion |
 | Humans (including witnesses) | **Don't trust** | hyde | N-of-M + audit logs |
-| Coercion | **Can't solve with tech** | Policy | Zero Negotiation Principle |
+| Coercion / 強制 | **Solved by tech** | hyde | Threshold crypto (M-of-N) + physical distribution — one person physically cannot approve / 閾値暗号＋物理分散で1人では承認不可能 |
 
 What hyde can do, hyde does. What hyde can't do, hyde says so honestly. A project that states what it **cannot** protect is one whose claims about what it **can** protect are credible.
 
