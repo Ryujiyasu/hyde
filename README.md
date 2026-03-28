@@ -429,26 +429,26 @@ let ctx = hyde::auto_detect(FallbackPolicy::Deny)?
 
 ### Known Physical Threats / 既知の物理攻撃
 
-hyde is aware of these attacks. They are physical — software cannot prevent them. We list them to be honest about what lies outside our trust boundary.
+hyde is aware of these attacks. They are physical — software cannot prevent them on a single device. However, **multi-TPM distribution (M-of-N threshold) limits the damage**: even if one device is physically compromised, the attacker only obtains a key fragment — insufficient for decryption. The attack must be repeated on M devices in different physical locations simultaneously.
 
-hydeはこれらの攻撃を認識している。物理攻撃であり、ソフトウェアでは防げない。信頼境界の外にあるものを正直に列挙する。
+hydeはこれらの攻撃を認識している。物理攻撃であり、1台のデバイスではソフトウェアで防げない。しかし**複数TPM分散（M-of-N閾値）により被害は限定される**：1台が物理的に攻撃されても、攻撃者が得るのは鍵の断片だけ — 復号には足りない。復号するにはM台のデバイスに対して、異なる物理拠点で同時に攻撃を繰り返す必要がある。
 
-| Attack / 攻撃 | Target / 対象 | Cost / コスト | Description / 概要 | hyde's stance / hydeの立場 |
-|---|---|---|---|---|
-| **SPI bus sniffing** | dTPM | ~$300, 10 min | Logic analyzer on TPM bus captures unsealed keys / SPIバス盗聴でTPM通信を傍受 | Software mitigation: PersonBinding (v0.3) |
-| **Cold boot attack** | DRAM | ~$50, 5 min | Freeze RAM, extract keys from residual charge / RAMを冷却し残留電荷から鍵抽出 | Out of scope — DRAM physics. Memory encryption (Phase 2 TDX/SEV) mitigates |
-| **faulTPM / Voltage glitching** | fTPM | ~$200, hours | Fault injection on CPU to extract fTPM secrets / CPUへの電圧グリッチでfTPM秘密を抽出 | Out of scope — CPU vendor responsibility |
-| **Decapping / Microprobing** | dTPM chip | $10K+, days | Physically open chip, probe internal circuits / チップ開封・内部回路の直接読取 | Out of scope — chip vendor's tamper resistance |
-| **Electromagnetic side-channel** | TPM / CPU | $1K+, hours | Measure EM emanation during crypto operations / 暗号演算中の電磁放射を計測 | Out of scope — chip vendor's shielding |
-| **Power analysis (DPA/SPA)** | TPM | $5K+, hours | Measure power consumption to infer key bits / 消費電力パターンから鍵ビットを推定 | Out of scope — chip vendor's countermeasures |
-| **JTAG / Debug port** | SoC | $100, minutes | Access debug interface left enabled / 有効なままのデバッグポートにアクセス | Out of scope — OEM must disable in production |
-| **Evil maid (hardware implant)** | Motherboard | $500+, minutes | Physically modify hardware to intercept or inject / ハードウェア改ざんによる傍受・注入 | Out of scope — physical access control |
-| **Rowhammer** | DRAM | $0, hours | DRAM bit-flip via repeated memory access / メモリ繰返しアクセスによるビット反転 | Out of scope — DRAM vendor. ECC memory mitigates |
-| **Bus interposer (MitM)** | PCIe / SPI | $1K+, hours | Hardware man-in-the-middle on bus / バス上のハードウェアMitM | Out of scope — physical bus integrity |
+| Attack / 攻撃 | Target / 対象 | Cost / コスト | Description / 概要 | Single device / 1台 | Multi-TPM (M-of-N) / 複数TPM分散 |
+|---|---|---|---|---|---|
+| **SPI bus sniffing** | dTPM | ~$300, 10 min | SPIバス盗聴でTPM通信を傍受 | ⚠ Key fragment exposed / 鍵断片が漏洩 | ✅ Insufficient for decryption — need M devices / 復号不可、M台必要 |
+| **Cold boot attack** | DRAM | ~$50, 5 min | RAMを冷却し残留電荷から鍵抽出 | ⚠ Key in RAM exposed / RAM上の鍵が漏洩 | ✅ Only one fragment — need M simultaneous attacks / 1断片のみ、M台同時攻撃が必要 |
+| **faulTPM / Voltage glitching** | fTPM | ~$200, hours | CPUへの電圧グリッチでfTPM秘密を抽出 | ⚠ fTPM secrets exposed / fTPM秘密が漏洩 | ✅ One fragment only / 1断片のみ |
+| **Decapping / Microprobing** | dTPM chip | $10K+, days | チップ開封・内部回路の直接読取 | ⚠ Key extracted / 鍵が抽出される | ✅ Need M chips in M locations / M拠点でM個のチップに攻撃が必要 |
+| **Electromagnetic side-channel** | TPM / CPU | $1K+, hours | 暗号演算中の電磁放射を計測 | ⚠ Key bits leaked / 鍵ビットが漏洩 | ✅ Partial fragment only / 部分的な断片のみ |
+| **Power analysis (DPA/SPA)** | TPM | $5K+, hours | 消費電力パターンから鍵ビットを推定 | ⚠ Key bits inferred / 鍵ビットが推定される | ✅ One device's fragment / 1台分の断片のみ |
+| **JTAG / Debug port** | SoC | $100, minutes | 有効なままのデバッグポートにアクセス | ⚠ Debug access gained / デバッグアクセス取得 | ✅ One device only / 1台のみ |
+| **Evil maid (hardware implant)** | Motherboard | $500+, minutes | ハードウェア改ざんによる傍受・注入 | ⚠ Device compromised / デバイス侵害 | ✅ Need to implant M devices / M台にインプラントが必要 |
+| **Rowhammer** | DRAM | $0, hours | メモリ繰返しアクセスによるビット反転 | ⚠ Memory corruption / メモリ破壊 | ✅ One device — copies elsewhere / 1台のみ、コピーが他にある |
+| **Bus interposer (MitM)** | PCIe / SPI | $1K+, hours | バス上のハードウェアMitM | ⚠ Bus traffic intercepted / バス通信が傍受 | ✅ One device's fragment / 1台分の断片のみ |
 
-These are **not hyde's failures**. They are the boundaries where software ends and physics begins. hyde's job is to make the software layer so solid that the only remaining attacks require physical access — and then honestly say "that part is not ours."
+**With M-of-N distribution, every physical attack's cost is multiplied by M, and the attacks must succeed simultaneously at physically separated locations.** A $300 SPI attack on one device becomes M × $300 attacks at M locations — an entirely different threat category.
 
-これらは**hydeの欠陥ではない**。ソフトウェアが終わり、物理が始まる境界である。hydeの仕事はソフトウェア層を堅固にし、残る攻撃が物理アクセスを必要とする状態にすること — そして「そこから先は我々の領域ではない」と正直に言うこと。
+**M-of-N分散により、全ての物理攻撃のコストがM倍になり、かつ物理的に離れた場所で同時に成功する必要がある。** 1台に対する$300のSPI攻撃が、M拠点でのM × $300の同時攻撃に変わる — 脅威のカテゴリ自体が変わる。
 
 ---
 
