@@ -56,9 +56,9 @@ Data is copied everywhere — cloud, USB, every PC. It doesn't matter, because i
 
 データはどこにでもコピーする — クラウド、USB、各PC。暗号文なので問題ない。**守るべきは鍵だけ**であり、鍵は物理的に離れた場所（例：東京と大阪）のTPMに分散され、普段はオフライン。復号には複数のTPMの協力が必要。
 
-Multi-user operating systems introduced the concept of "admin privileges." However, hyde's FixedTPM flag ensures that even admin-level access **cannot extract sealed keys** from the TPM. An admin on one device can disrupt operations (disable TPM, stop process, delete files), but **cannot steal the data** — and since copies exist on other devices and clouds, **operational disruption on one device is meaningless**. The more copies, the more resilient the system becomes.
+Multi-user operating systems introduced the concept of "admin privileges." hyde renders this irrelevant: **FixedTPM blocks data theft**, and **redundant copies neutralize operational disruption**. An admin with root access on one device cannot steal data (TPM refuses) and cannot destroy it (copies exist elsewhere). The more copies, the more resilient the system becomes.
 
-マルチユーザーOSは「管理者権限」という概念を生み出した。しかしhydeのFixedTPMフラグにより、管理者権限があっても**TPMから鍵を取り出すことは不可能**。1台のデバイス上で管理者が運用を妨害（TPM無効化、プロセス停止、ファイル削除）しても、**データは盗めない** — しかも他のデバイスやクラウドにコピーがあるため、**1台での運用妨害は意味をなさない**。コピーが増えるほどシステムは強靭になる。
+マルチユーザーOSは「管理者権限」という概念を生み出した。hydeはこれを無意味にする：**FixedTPMが情報窃取を阻止**し、**コピーの冗長性が運用妨害を無力化**する。1台のデバイスでroot権限を持つ管理者がいても、データは盗めない（TPMが拒否）し、消しても無駄（他にコピーがある）。コピーが増えるほどシステムは強靭になる。
 
 hyde addresses infrastructure reality in phases:
 
@@ -378,7 +378,7 @@ hydeの脅威モデルは**データ窃取**（鍵やデータの抜き取り）
 
 | Threat / 脅威 | Data theft / 情報窃取 | Operational disruption / 運用妨害 | Phase 2 improvement |
 |---|---|---|---|
-| Admin privilege escalation / 管理者権限奪取 | ✅ **Blocked** — FixedTPM refuses key extraction / FixedTPMが鍵取り出しを拒否 | ⚠ Possible — disable TPM, stop process, delete files / TPM無効化・プロセス停止・ファイル削除が可能 | Runtime memory protection (TDX/SEV-SNP) |
+| Admin privilege escalation / 管理者権限奪取 | ✅ **Blocked** — FixedTPM refuses key extraction / FixedTPMが鍵取り出しを拒否 | ✅ **Neutralized** — redundant copies across devices / コピー冗長性で無力化 | Runtime memory protection (TDX/SEV-SNP) |
 | Physical attacks (SPI sniffing) / 物理攻撃 | Out of scope | Out of scope | Chip vendor responsibility |
 | Cloud admin memory access / クラウド管理者 | ⚠ Phase 1 risk — keys in RAM during operation | ⚠ Possible | **In scope** — hardware memory encryption |
 
