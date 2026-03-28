@@ -73,10 +73,6 @@ The core design insight: **"There is no perfect safety. Minimize and push the tr
 
 設計思想の核心：**「完全な安全はない。信頼が必要な範囲を、できる限り小さく・末端にする。」**
 
-This insight may ultimately motivate the creation of an OS built from the ground up around this trust model — **hydeOS**.
-
-この洞察は最終的に、hydeの信頼モデルを前提としたOS — **hydeOS** — の開発動機となりうる。
-
 ---
 
 ## Post-Quantum Cryptography (PQC) / ポスト量子暗号
