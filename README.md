@@ -56,9 +56,9 @@ Data is copied everywhere — cloud, USB, every PC. It doesn't matter, because i
 
 データはどこにでもコピーする — クラウド、USB、各PC。暗号文なので問題ない。**守るべきは鍵だけ**であり、鍵は物理的に離れた場所（例：東京と大阪）のTPMに分散され、普段はオフライン。復号には複数のTPMの協力が必要。
 
-Multi-user operating systems introduced the concept of "admin privileges." However, hyde's FixedTPM flag ensures that even admin-level access **cannot extract sealed keys** from the TPM. An admin can disrupt operations (disable TPM, stop process, delete files), but **cannot steal the data itself**. This is a critical distinction: admin ≠ omnipotent when hardware trust is involved.
+Multi-user operating systems introduced the concept of "admin privileges." However, hyde's FixedTPM flag ensures that even admin-level access **cannot extract sealed keys** from the TPM. An admin on one device can disrupt operations (disable TPM, stop process, delete files), but **cannot steal the data** — and since copies exist on other devices and clouds, **operational disruption on one device is meaningless**. The more copies, the more resilient the system becomes.
 
-マルチユーザーOSは「管理者権限」という概念を生み出した。しかしhydeのFixedTPMフラグにより、管理者権限があっても**TPMから鍵を取り出すことは不可能**。管理者は運用を妨害できる（TPM無効化、プロセス停止、ファイル削除）が、**データそのものを盗むことはできない**。ハードウェア信頼基盤がある場合、管理者＝全能ではない。
+マルチユーザーOSは「管理者権限」という概念を生み出した。しかしhydeのFixedTPMフラグにより、管理者権限があっても**TPMから鍵を取り出すことは不可能**。1台のデバイス上で管理者が運用を妨害（TPM無効化、プロセス停止、ファイル削除）しても、**データは盗めない** — しかも他のデバイスやクラウドにコピーがあるため、**1台での運用妨害は意味をなさない**。コピーが増えるほどシステムは強靭になる。
 
 hyde addresses infrastructure reality in phases:
 
