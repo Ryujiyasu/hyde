@@ -527,9 +527,9 @@ ctx.protect(secret)
 
 ### Physical Destruction / 物理破壊問題
 
-Recovery paths are layered with OR conditions, eliminating single points of failure. PC destroyed → recover with phone. Phone destroyed → recover with witnesses. Each layer's security strength is independently maintained.
+Data is encrypted and copied everywhere — cloud, USB, multiple PCs. Destroying one device is meaningless because the same ciphertext exists on all others. Keys are distributed across multiple TPMs (M-of-N threshold), so losing one TPM still leaves enough to decrypt. The more copies and the more TPMs, the harder it is to cause permanent data loss.
 
-復元経路をOR条件で複数層用意することで単一障害点を排除。PCが壊れてもスマホで復元、スマホも壊れても立会人で復元。各層のセキュリティ強度は独立して保たれる。
+データは暗号化されてあらゆる場所にコピーされている — クラウド、USB、複数のPC。1台を壊しても、同じ暗号文が他の全てに存在するので意味がない。鍵は複数のTPMに分散（M-of-N閾値）されており、1台のTPMを失っても残りで復号可能。コピーとTPMが多いほど、永続的なデータ喪失は困難になる。
 
 ### Insider Threat (The Vault Problem) / 金庫問題（内部犯行）
 
