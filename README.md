@@ -636,6 +636,30 @@ hyde:
 
 **プライバシーは「守られる」のではない。データが露出しないので、守る必要が構造的に存在しない。**
 
+### Blockchain Without Blockchain / ブロックチェーンなきブロックチェーン
+
+hyde shares one key insight with blockchain: **the more copies, the more resilient**. But they diverge fundamentally on visibility.
+
+hydeはブロックチェーンと一つの核心を共有する：**コピーが増えるほど強くなる**。しかし可視性において根本的に異なる。
+
+```
+Blockchain / ブロックチェーン:
+  More copies → harder to tamper / コピーが増える → 改ざんに強くなる
+  But: data is visible to all nodes / しかしデータは全ノードに見える
+  "Everyone is watching, therefore it is correct"
+  「みんなが見ているから正しい」
+
+hyde:
+  More copies → harder to lose / コピーが増える → 消失に強くなる
+  And: data is ciphertext on all copies / かつデータは全コピーが暗号文
+  "No one is watching, yet it is provably correct" (via ZKP/argo)
+  「誰も見ていないのに、証明可能に正しい」（ZKP/argoによる）
+```
+
+Blockchain sacrifices privacy for transparency. hyde achieves correctness without transparency — because ZKP can prove facts without revealing data. This makes the "everyone watches" model unnecessary.
+
+ブロックチェーンは透明性のためにプライバシーを犠牲にする。hydeは透明性なしに正しさを実現する — ZKPがデータを見せずに事実を証明できるから。「全員で監視する」モデルが不要になる。
+
 ## Workspace Structure / ワークスペース構成
 
 ```
