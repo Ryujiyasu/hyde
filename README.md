@@ -590,19 +590,21 @@ Today / 今:
 
 With hyde / hydeの世界:
   Encrypted copies exist in all 47 prefectures / 暗号化コピーが47都道府県にある
-  Each prefecture can only read its own residents / 各県は自県民のデータしか読めない
-  Citizen moves to another prefecture → consents via personal TPM
-  住民が転出 → 本人のTPMで転出先に権限付与
-  → No paperwork. No leak risk. Instant. / 手続き不要。漏洩リスクなし。即時。
+  No prefecture needs to read the data — processing happens on ciphertext (FHE)
+  どの県もデータを読む必要がない — 暗号文のまま処理する（FHE）
+  Citizen moves → transfer processed without anyone seeing personal data
+  住民が転出 → 個人情報を誰も見ずに転入処理が完了
+  → No paperwork. No leak risk. No human eyes on data. / 手続き不要。漏洩リスクなし。人の目に触れない。
 
 Medical records / 医療データ:
   Patient records exist at every hospital (encrypted) / 全病院にカルテが存在（暗号化）
-  Patient consents → that hospital's TPM decrypts / 患者が同意 → その病院のTPMだけが復号
-  Other hospitals see nothing / 他の病院には見えない
+  Diagnosis and treatment work on encrypted data / 診断・治療は暗号化データ上で動作
+  When the patient consents, only the necessary fields are decrypted
+  患者が同意した場合のみ、必要な項目だけが復号される
 
 The key principle / 設計原則:
-  "Data is everywhere. But only the data subject decides who can read it."
-  「データはどこにでもある。でも誰が読めるかは本人だけが決める。」
+  "Data is everywhere. No one needs to read it. Processing happens on ciphertext."
+  「データはどこにでもある。誰も読む必要がない。処理は暗号文のまま行われる。」
 ```
 
 ## Workspace Structure / ワークスペース構成
