@@ -54,7 +54,7 @@
 
 ---
 
-## Phase 1.5: PersonBinding ← 次の優先事項
+## Phase 1.5: janus（PersonBinding層） ← 次の優先事項
 
 ### 背景
 
@@ -69,21 +69,90 @@ TPM-onlyモードはSPIバス盗聴攻撃に対して脆弱です。
 READMEに「特定のデバイス＋特定の人物」と書いているが、
 TPM-onlyでは「人物」バインディングが実現できていない。
 
-### 実装計画
+### janusプロジェクト
+
+人物バインディングは独立crateとして `janus` で実装する。
+hyde以外のプロジェクトでも利用可能な汎用 `UserBinding` 抽象化。
+
+- リポジトリ: `gitlab.com/Ryujiyasu/janus`
+- 詳細設計: [docs/research/windows-hello.md](research/windows-hello.md)
+
+### 設計不変条件
+
+**janus は存在判定であり、鍵の保護は TPM/SE が担う。**
+
+Windows Hello の WinBioDatabase が DPAPI-seal のみで TPM 封印されて
+いない（Black Hat 2025「Windows Hell No」で露呈）という構造的欠陥を
+踏まえ、janus はプレゼンスゲートに徹する。鍵の最終保護境界はあくまで
+hyde の TPM 鍵。janus 層が侵害されても鍵マテリアルには到達しない。
+
+### プラットフォーム別バックエンド
+
+| OS | バックエンド | 実装状況 |
+|---|---|---|
+| Windows | `UserConsentVerifier` (Win Hello gate型) | Phase 1.5 |
+| Windows | `KeyCredentialManager` (bind型, NGC署名を鍵ラップに組み込む) | Phase 2 に先送り |
+| macOS | `LAContext.evaluatePolicy(deviceOwnerAuthenticationWithBiometrics)` | Phase 1.5 |
+| Linux | libfido2 (YubiKey等外部authenticator) + PIN | Phase 1.5 |
+| Linux | fprintd 統合（テンプレ平文保存問題のため） | 採用見送り |
+| 全般 | `JanusNull`（CI/テスト用） | Phase 1.5 |
+
+### UserBinding trait（janus側）
+
+```rust
+pub trait UserBinding: Send + Sync {
+    /// ユーザ存在を要求（gate型）
+    fn require_presence(&self, reason: &str) -> Result<PresenceToken, JanusError>;
+
+    /// 署名（bind型、Phase 2以降）
+    fn sign_with_presence(
+        &self,
+        key_id: &KeyId,
+        challenge: &[u8],
+        reason: &str,
+    ) -> Result<Vec<u8>, JanusError>;
+
+    fn enroll(&self, key_id: &KeyId) -> Result<(), JanusError>;
+    fn is_enrolled(&self, key_id: &KeyId) -> Result<bool, JanusError>;
+    fn capabilities(&self) -> BindingCapabilities;
+}
+
+pub struct BindingCapabilities {
+    pub hardware_bound: bool,
+    pub biometric_available: bool,
+    pub pin_fallback: bool,
+    pub attestation_supported: bool,
+}
+```
+
+### hyde側の統合API
 
 ```rust
 pub enum PersonBinding {
-    /// TPM + PIN（BitLocker TPM+PIN相当）
+    /// TPM + PIN（BitLocker TPM+PIN相当、janus非依存）
     Pin,
     /// TPM + Passphrase
     Passphrase,
-    /// 将来: FIDO2/Passkey
-    // Fido2,
+    /// janusバックエンドによる人物バインディング
+    Janus(Box<dyn UserBinding>),
 }
 
 let ctx = hyde::auto_detect(FallbackPolicy::Deny)?
-    .with_person_binding(PersonBinding::Pin)?;
+    .with_person_binding(PersonBinding::Janus(
+        janus::auto_detect()?,
+    ))?;
+
+// 既存API非破壊のため別エントリも提供
+ctx.unprotect_with_janus(&protected, &binding)?;
 ```
+
+### セッション/キャッシュ管理
+
+- `UserPresenceCache { verified_at, ttl, binding }` をメモリ上のみに保持
+- TTL 5〜15分（default 5分）。鍵ローテーション等の高機密操作は無視
+- `SessionBinding` にプロセスID / HWND / ログオンセッションLUID を含め別プロセス流用を防ぐ
+- `WTS_SESSION_LOCK` 等で強制失効
+- cache 自体を `zeroize`
 
 ### fTPM vs dTPM の扱い
 
@@ -95,7 +164,7 @@ pub enum TpmKind {
 }
 
 // auto_detect()がTPM種別を検出し、
-// dTPM環境ではPersonBindingを推奨する
+// dTPM環境ではjanusによるPersonBindingを強く推奨する
 ```
 
 ### FallbackPolicy改善（v0.2）
@@ -107,8 +176,8 @@ pub enum FallbackPolicy {
 }
 
 pub enum BackendKind {
-    Tpm,         // 本物のTPM
-    SoftwareOnly, // テスト用フォールバック
+    Tpm,
+    SoftwareOnly,
 }
 
 impl HydeContext {
@@ -116,6 +185,15 @@ impl HydeContext {
     pub fn tpm_kind(&self) -> TpmKind { ... }
 }
 ```
+
+### 長期構想: Linux版「改良Windows Hello」
+
+短期は libfido2+PIN で必要十分。長期的には、Windows Hello の最大の
+設計ミス（WinBioDBをTPMに封印しなかった）を避け、**テンプレDBを
+TPM policy (PCR or auth value) で封印する** Linux ネイティブの生体
+認証基盤を janus のサブプロジェクトとして構想する。libfprint への
+patch, TPM policy session 設計, systemd/PAM 統合を含む大規模案件の
+ため別プロジェクト化の見込み。
 
 ---
 
