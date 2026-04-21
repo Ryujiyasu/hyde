@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>hyde-wasm smoke test</title>
+  <style>
+    body { font-family: ui-monospace, monospace; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    pre { background: #f4f4f4; padding: 0.75rem; border-radius: 4px; overflow-x: auto; }
+    .ok  { color: #0a7a2e; } .err { color: #b00020; }
+    h2 { margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>hyde-wasm smoke test</h1>
+  <p>Open the browser console for detail. Summary below:</p>
+  <pre id="out">(running...)</pre>
+
+  <script type="module">
+    import init, {
+      HydeWasm,
+      PqcKeypairWasm,
+      pqcEncrypt,
+      pqcDecrypt,
+    } from "../../crates/hyde-wasm/pkg/hyde_wasm.js";
+
+    const out = document.getElementById("out");
+    const log = (line, cls = "") => {
+      const span = document.createElement("span");
+      if (cls) span.className = cls;
+      span.textContent = line + "\n";
+      out.appendChild(span);
+    };
+
+    (async () => {
+      out.textContent = "";
+      try {
+        await init();
+        log("init: OK", "ok");
+
+        // --- Tier A: high-level protect/unprotect ---
+        const hyde = new HydeWasm();
+        const msg = new TextEncoder().encode("hello from hyde-wasm");
+        const protectedBlob = hyde.protect(msg);
+        log(`protect: ${protectedBlob.byteLength} bytes`, "ok");
+
+        const recovered = hyde.unprotect(protectedBlob);
+        const text = new TextDecoder().decode(recovered);
+        if (text !== "hello from hyde-wasm") throw new Error("roundtrip mismatch: " + text);
+        log(`unprotect: "${text}"`, "ok");
+
+        // --- Tier B: Option Y hybrid (low-level PQC) ---
+        const kp = PqcKeypairWasm.generate();
+        const ek = kp.ekBytes();
+        const dk = kp.dkBytes();
+        log(`PQC keypair: ek=${ek.length}B, dk=${dk.length}B`, "ok");
+
+        const plaintext = new TextEncoder().encode("Layer 1 only (hybrid)");
+        const pqcCt = pqcEncrypt(ek, plaintext);
+        const pqcPt = pqcDecrypt(dk, pqcCt);
+        const pqcText = new TextDecoder().decode(pqcPt);
+        if (pqcText !== "Layer 1 only (hybrid)") throw new Error("pqc roundtrip mismatch");
+        log(`pqc roundtrip: "${pqcText}"`, "ok");
+
+        log("\nall smoke tests passed", "ok");
+      } catch (e) {
+        console.error(e);
+        log("FAILED: " + e.message, "err");
+      }
+    })();
+  </script>
+</body>
+</html>

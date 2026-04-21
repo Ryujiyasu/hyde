@@ -1,6 +1,6 @@
 [package]
-name = "hyde-software"
-description = "Software-only fallback backend for Hyde"
+name = "hyde-wasm"
+description = "WASM bindings for Hyde (PQC layer + software backend)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,12 +9,16 @@ keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 hyde-core.workspace = true
-tracing.workspace = true
-zeroize.workspace = true
-aes-gcm = "0.10"
-rand = "0.8"
+hyde-software.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
