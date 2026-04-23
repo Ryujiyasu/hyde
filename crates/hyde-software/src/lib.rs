@@ -136,6 +136,53 @@ impl TeeBackend for SoftwareBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hyde_core::{signing::verify, SigningAlgorithm};
+
+    #[test]
+    fn ml_dsa_signing_roundtrip_via_software_backend() {
+        let mut backend = SoftwareBackend::new();
+        backend.initialize_primary_key().expect("init primary");
+
+        let wrapped = backend
+            .generate_signing_key(SigningAlgorithm::MlDsa65)
+            .expect("generate signing key");
+
+        // The verifying key is in the clear.
+        assert!(!wrapped.verifying_key.is_empty());
+
+        let msg = b"vohu-vote/v1 proposal=demo nullifier=abc ballot-digest=xyz";
+        let sig = backend.sign(&wrapped, msg).expect("sign");
+
+        assert!(
+            verify(wrapped.algorithm, &wrapped.verifying_key, msg, &sig)
+                .expect("verify ok"),
+            "signature should verify under the matching verifying key"
+        );
+
+        // A different message must not verify.
+        assert!(!verify(
+            wrapped.algorithm,
+            &wrapped.verifying_key,
+            b"other",
+            &sig
+        )
+        .expect("verify"));
+    }
+
+    #[test]
+    fn ml_dsa_signing_key_not_usable_after_backend_restart() {
+        // A SoftwareBackend that forgets its primary key cannot unseal
+        // the signing key — device binding, even in software.
+        let mut b1 = SoftwareBackend::new();
+        b1.initialize_primary_key().unwrap();
+        let wrapped = b1.generate_signing_key(SigningAlgorithm::MlDsa65).unwrap();
+
+        let mut b2 = SoftwareBackend::new();
+        b2.initialize_primary_key().unwrap(); // fresh primary key
+
+        let r = b2.sign(&wrapped, b"msg");
+        assert!(r.is_err(), "a different primary key must not unseal");
+    }
 
     #[test]
     fn roundtrip_seal_unseal() {

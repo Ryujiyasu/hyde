@@ -1,4 +1,5 @@
-use crate::error::Result;
+use crate::error::{HydeError, Result};
+use crate::signing::{self, SigningAlgorithm, WrappedSigningKey};
 use serde::{Deserialize, Serialize};
 
 /// TEE backend unified interface.
@@ -25,6 +26,44 @@ pub trait TeeBackend: Send + Sync {
 
     /// Return the backend type identifier.
     fn backend_type(&self) -> BackendType;
+
+    /// Generate an ML-DSA signing keypair bound to this device.
+    ///
+    /// Default implementation keygens in software, seals the signing
+    /// key with this backend's Primary Key, and returns the verifying
+    /// key in the clear. Backends with native ML-DSA hardware (not
+    /// currently shipping in TPM 2.0 at time of writing) may override
+    /// to keep the key inside silicon.
+    fn generate_signing_key(
+        &mut self,
+        algorithm: SigningAlgorithm,
+    ) -> Result<WrappedSigningKey> {
+        let (signing_bytes, verifying_bytes) = signing::keygen_raw(algorithm)?;
+        let wrapping_key = self.generate_data_key()?;
+        let sealed_signing_key = self.seal(&wrapping_key, &signing_bytes)?;
+        Ok(WrappedSigningKey {
+            algorithm,
+            verifying_key: verifying_bytes,
+            wrapping_key,
+            sealed_signing_key,
+            backend: self.backend_type(),
+        })
+    }
+
+    /// Sign a message under a previously-wrapped signing key.
+    ///
+    /// Default implementation unseals the signing key inside this
+    /// backend, runs [`signing::sign_raw`], and zeroises the
+    /// recovered bytes before returning.
+    fn sign(&mut self, key: &WrappedSigningKey, message: &[u8]) -> Result<Vec<u8>> {
+        if key.backend != self.backend_type() {
+            return Err(HydeError::Backend(
+                "wrapped signing key belongs to a different backend".into(),
+            ));
+        }
+        let signing_bytes = self.unseal(&key.wrapping_key, &key.sealed_signing_key)?;
+        signing::sign_raw(key.algorithm, signing_bytes, message)
+    }
 }
 
 /// A Data Key wrapped by the Primary Key.

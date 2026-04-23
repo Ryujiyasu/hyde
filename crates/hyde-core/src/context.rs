@@ -5,6 +5,7 @@ use crate::{
     pqc::{self, PqcKeypair},
     recovery::{BackupBundle, RecoveryStrategy},
     security_level::SecurityLevel,
+    signing::{self, SigningAlgorithm, WrappedSigningKey},
 };
 use serde::{Deserialize, Serialize};
 
@@ -155,6 +156,43 @@ impl HydeContext {
         );
 
         Ok(inner)
+    }
+
+    /// Generate a device-bound ML-DSA signing keypair.
+    ///
+    /// The signing key's 32-byte master seed is sealed by the active
+    /// TEE backend's Primary Key; the verifying key is returned in
+    /// the clear and can be published to relying parties. Persist
+    /// the whole [`WrappedSigningKey`] and pass it back to
+    /// [`HydeContext::sign`] to produce signatures.
+    pub fn generate_signing_key(
+        &mut self,
+        algorithm: SigningAlgorithm,
+    ) -> Result<WrappedSigningKey> {
+        self.backend.generate_signing_key(algorithm)
+    }
+
+    /// Sign `message` under a device-bound signing key.
+    ///
+    /// Returns [`HydeError::Backend`] if the signing key was wrapped
+    /// by a different backend (e.g. sealed on a TPM but presented to
+    /// a software context, or vice versa), or if unsealing fails (for
+    /// PCR-bound TPM backends, this happens when the boot state has
+    /// drifted).
+    pub fn sign(&mut self, key: &WrappedSigningKey, message: &[u8]) -> Result<Vec<u8>> {
+        self.backend.sign(key, message)
+    }
+
+    /// Verify a signature against a published verifying key. Free
+    /// function — no TEE needed — exposed as a method for API
+    /// symmetry.
+    pub fn verify(
+        &self,
+        key: &WrappedSigningKey,
+        message: &[u8],
+        signature: &[u8],
+    ) -> Result<bool> {
+        signing::verify(key.algorithm, &key.verifying_key, message, signature)
     }
 
     /// Drop all cached keys and plaintext from memory (triggers zeroize).

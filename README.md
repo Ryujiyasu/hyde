@@ -268,6 +268,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Device-bound ML-DSA signatures / 端末束縛 ML-DSA 署名
+
+Besides seal / unseal, hyde can generate a device-bound **ML-DSA** (FIPS 204) signing keypair. The 32-byte master seed is sealed by the same TEE primary key, the verifying key stays in the clear, and signing unseals the seed only for the duration of a single `sign()` call.
+
+シール / アンシールに加えて、hyde は端末束縛の **ML-DSA** (FIPS 204) 署名鍵ペアを生成できる。32 byte のマスターシードは同じ TEE primary key でシールされ、verifying key はクリアテキストのまま。sign 呼び出し中だけシードが一時的にアンシールされる。
+
+```rust
+use hyde::{FallbackPolicy, SigningAlgorithm};
+
+let mut ctx = hyde::auto_detect(FallbackPolicy::Deny)?;
+let key = ctx.generate_signing_key(SigningAlgorithm::MlDsa65)?;
+
+// Publish `key.verifying_key` to the relying party at enrolment.
+// Persist the whole `key` blob — only this device's TEE can unseal it.
+
+let sig = ctx.sign(&key, b"vohu-vote/v1 proposal=demo nullifier=abc")?;
+assert!(ctx.verify(&key, b"vohu-vote/v1 proposal=demo nullifier=abc", &sig)?);
+```
+
+A device whose Primary Key is gone (re-paved laptop, different TPM) can no longer unseal the signing key — signing fails by construction. This is what hyde contributes to [vohu](https://github.com/Ryujiyasu/vohu)'s receipt path: the MiniKit Secure-Enclave signature on mobile becomes a `hyde::sign` call on a self-hosted desktop, with the same wire format.
+
+Primary Key を失った端末（再インストール、別 TPM）はこの署名鍵をアンシールできない — 署名が構造的に失敗する。これは [vohu](https://github.com/Ryujiyasu/vohu) の receipt パスに hyde が貢献する形: モバイル版の MiniKit Secure Enclave 署名が、セルフホストデスクトップでは `hyde::sign` 呼び出しに置き換わる（ワイヤフォーマットは同一）。
+
 ## Architecture / アーキテクチャ
 
 ```
