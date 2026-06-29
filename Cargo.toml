@@ -23,8 +23,8 @@ categories = ["cryptography", "hardware-support"]
 rust-version = "1.74"
 
 [workspace.dependencies]
-hyde-core = { path = "crates/hyde-core", version = "0.1.0" }
-hyde-tpm = { path = "crates/hyde-tpm", version = "0.1.0" }
+hyde-core = { path = "crates/hyde-core", version = "0.1.1" }
+hyde-tpm = { path = "crates/hyde-tpm", version = "0.2.0" }
 hyde-software = { path = "crates/hyde-software", version = "0.1.0" }
 hyde-macros = { path = "crates/hyde-macros", version = "0.1.0" }
 tss-esapi = "7"

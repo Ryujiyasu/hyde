@@ -25,7 +25,7 @@ use crate::error::{HydeError, Result};
 use getrandom::getrandom;
 use ml_dsa::{
     signature::{Keypair, Signer, Verifier},
-    B32, EncodedSignature, EncodedVerifyingKey, KeyGen, MlDsa44, MlDsa65, MlDsa87,
+    B32, EncodedSignature, EncodedVerifyingKey, MlDsa44, MlDsa65, MlDsa87,
     MlDsaParams, Signature, SigningKey, VerifyingKey,
 };
 use serde::{Deserialize, Serialize};
@@ -106,17 +106,17 @@ pub fn sign_raw(
     let seed: B32 = seed_arr.into();
     let result = match algorithm {
         SigningAlgorithm::MlDsa44 => {
-            let sk: SigningKey<MlDsa44> = MlDsa44::from_seed(&seed);
+            let sk: SigningKey<MlDsa44> = SigningKey::<MlDsa44>::from_seed(&seed);
             let sig: Signature<MlDsa44> = sk.sign(message);
             sig.encode().as_slice().to_vec()
         }
         SigningAlgorithm::MlDsa65 => {
-            let sk: SigningKey<MlDsa65> = MlDsa65::from_seed(&seed);
+            let sk: SigningKey<MlDsa65> = SigningKey::<MlDsa65>::from_seed(&seed);
             let sig: Signature<MlDsa65> = sk.sign(message);
             sig.encode().as_slice().to_vec()
         }
         SigningAlgorithm::MlDsa87 => {
-            let sk: SigningKey<MlDsa87> = MlDsa87::from_seed(&seed);
+            let sk: SigningKey<MlDsa87> = SigningKey::<MlDsa87>::from_seed(&seed);
             let sig: Signature<MlDsa87> = sk.sign(message);
             sig.encode().as_slice().to_vec()
         }
@@ -158,7 +158,7 @@ fn do_keygen<P: MlDsaParams>() -> Result<(Vec<u8>, Vec<u8>)> {
         HydeError::Backend(format!("getrandom failed: {e}").into())
     })?;
     let seed: B32 = seed_bytes.into();
-    let sk: SigningKey<P> = P::from_seed(&seed);
+    let sk: SigningKey<P> = SigningKey::<P>::from_seed(&seed);
     let vk: VerifyingKey<P> = sk.verifying_key();
     let vk_bytes = vk.encode().as_slice().to_vec();
     let seed_out = sk.to_seed().as_slice().to_vec();
@@ -234,5 +234,23 @@ mod tests {
             b"msg",
         );
         assert!(matches!(r, Err(HydeError::InvalidKey)));
+    }
+
+    /// Recovery and device+person binding re-derive the signing key from a
+    /// stored 32-byte seed, so the same seed MUST yield the same verifying key
+    /// (FIPS 204 `KeyGen_internal` is deterministic). This is the load-bearing
+    /// invariant the `ml-dsa` 0.1.1 call-site fix must preserve — a regression
+    /// here means previously-recoverable identities stop recovering. Guards
+    /// against silent behavioral drift in the `ml-dsa` dependency.
+    #[test]
+    fn from_seed_key_derivation_is_deterministic() {
+        let seed: B32 = [0x42u8; SEED_LEN].into();
+        let vk_a = SigningKey::<MlDsa44>::from_seed(&seed).verifying_key().encode();
+        let vk_b = SigningKey::<MlDsa44>::from_seed(&seed).verifying_key().encode();
+        assert_eq!(vk_a, vk_b, "same seed must derive the same key (recovery invariant)");
+
+        let other: B32 = [0x43u8; SEED_LEN].into();
+        let vk_c = SigningKey::<MlDsa44>::from_seed(&other).verifying_key().encode();
+        assert_ne!(vk_a, vk_c, "different seed must derive a different key");
     }
 }

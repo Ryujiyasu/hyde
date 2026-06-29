@@ -1,3 +1,6 @@
+//! Classic (tss-esapi) backend integration tests — gated to the `tss` feature.
+#![cfg(feature = "tss")]
+
 use hyde_core::backend::TeeBackend;
 use hyde_core::recovery::RecoveryStrategy;
 use hyde_core::PassphraseRecovery;

@@ -1,21 +1,38 @@
 [package]
 name = "hyde-tpm"
-description = "TPM 2.0 backend for Hyde"
-version.workspace = true
+description = "TPM 2.0 backend for Hyde (classic + v1.85 post-quantum: ML-KEM / ML-DSA)"
+version = "0.2.0" # overrides workspace inherit: hyde-tpm ships PQC ahead of the rest
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
+readme = "README.md"
+
+[features]
+default = ["tss"]
+# Classic TPM 2.0 backend via tss-esapi (sealing, key wrap, AES-256-GCM).
+tss = ["dep:tss-esapi", "dep:aes-gcm", "dep:hyde-core", "dep:zeroize", "dep:tracing"]
+# Pure-Rust TCG TPM 2.0 v1.85 post-quantum path (ML-KEM / ML-DSA). No libtss2.
+pqc = []
 
 [dependencies]
-hyde-core.workspace = true
-tss-esapi.workspace = true
-zeroize.workspace = true
-tracing.workspace = true
-aes-gcm = "0.10"
+hyde-core = { workspace = true, optional = true }
+zeroize = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tss-esapi = { workspace = true, optional = true }
+aes-gcm = { version = "0.10", optional = true }
 
 [[bench]]
 name = "tpm_seal_bench"
 harness = false
+required-features = ["tss"]
+
+# Independent FIPS 204 verification (evidence/tests/example only — see README).
+[dev-dependencies]
+ml-dsa = "0.1.1"
+
+[[example]]
+name = "pqc_demo"
+required-features = ["pqc"]
