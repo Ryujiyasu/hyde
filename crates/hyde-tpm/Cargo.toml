@@ -1,14 +1,21 @@
 [package]
 name = "hyde-tpm"
 description = "TPM 2.0 backend for Hyde (classic + v1.85 post-quantum: ML-KEM / ML-DSA)"
-version = "0.2.0" # overrides workspace inherit: hyde-tpm ships PQC ahead of the rest
+version = "0.2.1" # overrides workspace inherit: hyde-tpm ships PQC ahead of the rest
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-keywords.workspace = true
+# Overrides the workspace keywords: this crate is found by what makes it unique
+# (v1.85 post-quantum), not by generic terms. crates.io allows at most 5.
+keywords = ["tpm", "post-quantum", "ml-kem", "ml-dsa", "tpm2"]
 categories.workspace = true
 rust-version.workspace = true
 readme = "README.md"
+
+# Without this, docs.rs builds only the default `tss` feature and the entire
+# `pqc` module — the reason this crate exists — is missing from the docs.
+[package.metadata.docs.rs]
+features = ["pqc"]
 
 [features]
 default = ["tss"]
