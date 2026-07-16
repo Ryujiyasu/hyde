@@ -260,8 +260,7 @@ impl TpmBackend {
         let unseal_result = self.context.unseal(obj_handle);
 
         // Restore HMAC session
-        self.context
-            .set_sessions((self.hmac_session.map(Into::into), None, None));
+        self.context.set_sessions((self.hmac_session, None, None));
 
         // Clean up
         let _ = self.context.flush_context(obj_handle);

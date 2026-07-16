@@ -25,8 +25,8 @@ use crate::error::{HydeError, Result};
 use getrandom::getrandom;
 use ml_dsa::{
     signature::{Keypair, Signer, Verifier},
-    B32, EncodedSignature, EncodedVerifyingKey, MlDsa44, MlDsa65, MlDsa87,
-    MlDsaParams, Signature, SigningKey, VerifyingKey,
+    EncodedSignature, EncodedVerifyingKey, MlDsa44, MlDsa65, MlDsa87, MlDsaParams, Signature,
+    SigningKey, VerifyingKey, B32,
 };
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -154,9 +154,8 @@ fn do_keygen<P: MlDsaParams>() -> Result<(Vec<u8>, Vec<u8>)> {
     // pre-release stack by deriving the key deterministically from 32
     // bytes of OS entropy — equivalent to `P::key_gen(&mut rng)`.
     let mut seed_bytes = [0u8; SEED_LEN];
-    getrandom(&mut seed_bytes).map_err(|e| {
-        HydeError::Backend(format!("getrandom failed: {e}").into())
-    })?;
+    getrandom(&mut seed_bytes)
+        .map_err(|e| HydeError::Backend(format!("getrandom failed: {e}").into()))?;
     let seed: B32 = seed_bytes.into();
     let sk: SigningKey<P> = SigningKey::<P>::from_seed(&seed);
     let vk: VerifyingKey<P> = sk.verifying_key();
@@ -166,11 +165,7 @@ fn do_keygen<P: MlDsaParams>() -> Result<(Vec<u8>, Vec<u8>)> {
     Ok((seed_out, vk_bytes))
 }
 
-fn do_verify<P: MlDsaParams>(
-    vk_bytes: &[u8],
-    message: &[u8],
-    sig_bytes: &[u8],
-) -> Result<bool> {
+fn do_verify<P: MlDsaParams>(vk_bytes: &[u8], message: &[u8], sig_bytes: &[u8]) -> Result<bool> {
     let vk_array = match EncodedVerifyingKey::<P>::try_from(vk_bytes) {
         Ok(a) => a,
         Err(_) => return Err(HydeError::InvalidKey),
@@ -245,12 +240,21 @@ mod tests {
     #[test]
     fn from_seed_key_derivation_is_deterministic() {
         let seed: B32 = [0x42u8; SEED_LEN].into();
-        let vk_a = SigningKey::<MlDsa44>::from_seed(&seed).verifying_key().encode();
-        let vk_b = SigningKey::<MlDsa44>::from_seed(&seed).verifying_key().encode();
-        assert_eq!(vk_a, vk_b, "same seed must derive the same key (recovery invariant)");
+        let vk_a = SigningKey::<MlDsa44>::from_seed(&seed)
+            .verifying_key()
+            .encode();
+        let vk_b = SigningKey::<MlDsa44>::from_seed(&seed)
+            .verifying_key()
+            .encode();
+        assert_eq!(
+            vk_a, vk_b,
+            "same seed must derive the same key (recovery invariant)"
+        );
 
         let other: B32 = [0x43u8; SEED_LEN].into();
-        let vk_c = SigningKey::<MlDsa44>::from_seed(&other).verifying_key().encode();
+        let vk_c = SigningKey::<MlDsa44>::from_seed(&other)
+            .verifying_key()
+            .encode();
         assert_ne!(vk_a, vk_c, "different seed must derive a different key");
     }
 }

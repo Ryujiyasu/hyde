@@ -1,4 +1,4 @@
-use hyde::{
+use hyde_tee::{
     auto_detect, auto_detect_with_security, FallbackPolicy, PassphraseRecovery, Protected,
     SecurityLevel,
 };
@@ -29,7 +29,7 @@ fn test_protected_data_serialize_roundtrip() {
     assert!(!json.is_empty());
 
     // Deserialize back
-    let deserialized: hyde::ProtectedData = serde_json::from_str(&json).unwrap();
+    let deserialized: hyde_tee::ProtectedData = serde_json::from_str(&json).unwrap();
 
     // Decrypt the deserialized data
     let recovered = ctx.unprotect(&deserialized).unwrap();
@@ -64,7 +64,7 @@ fn test_backup_restore_via_context() {
 
     // Restore
     let restored = ctx
-        .restore(&bundle, &protected.ciphertext, &strategy, passphrase)
+        .restore(&bundle, &protected, &strategy, passphrase)
         .unwrap();
     let recovered = ctx.unprotect(&restored).unwrap();
     assert_eq!(recovered, secret);
@@ -80,20 +80,20 @@ fn test_backup_bundle_serialize_roundtrip() {
 
     // BackupBundle should be serializable
     let json = serde_json::to_string(&bundle).unwrap();
-    let deserialized: hyde::BackupBundle = serde_json::from_str(&json).unwrap();
+    let deserialized: hyde_tee::BackupBundle = serde_json::from_str(&json).unwrap();
 
     let restored = ctx
-        .restore(&deserialized, &protected.ciphertext, &strategy, b"pass")
+        .restore(&deserialized, &protected, &strategy, b"pass")
         .unwrap();
     let recovered = ctx.unprotect(&restored).unwrap();
     assert_eq!(recovered, b"serializable backup");
 }
 
 // ---------------------------------------------------------------------------
-// #[hyde::protect] macro + Protected<T>
+// #[hyde_tee::protect] macro + Protected<T>
 // ---------------------------------------------------------------------------
 
-#[hyde::protect]
+#[hyde_tee::protect]
 struct DocumentKey {
     key_material: Vec<u8>,
     label: String,
@@ -127,7 +127,7 @@ fn test_protect_macro_serialize_roundtrip() {
     assert_eq!(recovered.label, "serializable");
 }
 
-#[hyde::protect(zeroize = false)]
+#[hyde_tee::protect(zeroize = false)]
 struct NonZeroizedData {
     value: String,
 }

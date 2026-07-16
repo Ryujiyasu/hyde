@@ -114,6 +114,9 @@ impl CacheEntry {
 /// Cache key is a SHA-256 hash of the identifier bytes.
 type CacheKey = [u8; 32];
 
+// Only the data-key cache path calls this; that path is covered by the unit
+// tests below but is not yet wired into HydeContext.
+#[allow(dead_code)]
 fn cache_key(input: &[u8]) -> CacheKey {
     let mut hasher = Sha256::new();
     hasher.update(input);
@@ -144,12 +147,17 @@ impl SecureCache {
     }
 
     /// Get a cached data key by WrappedKey blob.
+    ///
+    /// The data-key cache path is exercised by the unit tests below but is not
+    /// yet called from HydeContext, which currently caches plaintexts only.
+    #[allow(dead_code)]
     pub fn get_data_key(&mut self, wrapped_key_blob: &[u8]) -> Option<Vec<u8>> {
         let key = cache_key(wrapped_key_blob);
         self.get_entry(&mut EntryTarget::DataKey, &key)
     }
 
-    /// Cache a data key.
+    /// Cache a data key. See `get_data_key` for why this is not yet wired up.
+    #[allow(dead_code)]
     pub(crate) fn insert_data_key(
         &mut self,
         wrapped_key_blob: &[u8],
@@ -216,6 +224,9 @@ impl SecureCache {
 }
 
 enum EntryTarget {
+    // Constructed only by the data-key cache path, which is tested but not yet
+    // wired into HydeContext.
+    #[allow(dead_code)]
     DataKey,
     Plaintext,
 }

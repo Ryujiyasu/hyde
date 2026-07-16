@@ -12,7 +12,7 @@ use crate::{
 ///
 /// let strategy = PassphraseRecovery;
 /// let backup = ctx.backup(&protected, &strategy, Some(b"my-passphrase"))?;
-/// let restored = ctx.restore(&backup, &protected.ciphertext, &strategy, b"my-passphrase")?;
+/// let restored = ctx.restore(&backup, &protected, &strategy, b"my-passphrase")?;
 /// ```
 pub struct PassphraseRecovery;
 

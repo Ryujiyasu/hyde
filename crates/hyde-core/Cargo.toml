@@ -1,7 +1,7 @@
 [package]
 name = "hyde-core"
 description = "Core traits and types for Hyde TEE abstraction"
-version = "0.1.1" # bugfix release: ml-dsa 0.1.1 call-site fix
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

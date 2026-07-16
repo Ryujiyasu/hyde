@@ -34,10 +34,7 @@ pub trait TeeBackend: Send + Sync {
     /// key in the clear. Backends with native ML-DSA hardware (not
     /// currently shipping in TPM 2.0 at time of writing) may override
     /// to keep the key inside silicon.
-    fn generate_signing_key(
-        &mut self,
-        algorithm: SigningAlgorithm,
-    ) -> Result<WrappedSigningKey> {
+    fn generate_signing_key(&mut self, algorithm: SigningAlgorithm) -> Result<WrappedSigningKey> {
         let (signing_bytes, verifying_bytes) = signing::keygen_raw(algorithm)?;
         let wrapping_key = self.generate_data_key()?;
         let sealed_signing_key = self.seal(&wrapping_key, &signing_bytes)?;

@@ -14,19 +14,19 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://gitlab.com/Ryujiyasu/hyde"
 keywords = ["tee", "tpm", "encryption", "security", "hardware"]
 categories = ["cryptography", "hardware-support"]
-rust-version = "1.74"
+rust-version = "1.85"  # ml-dsa 0.1.1 requires 1.85
 
 [workspace.dependencies]
-hyde-core = { path = "crates/hyde-core", version = "0.1.1" }
-hyde-tpm = { path = "crates/hyde-tpm", version = "0.2.0" }
-hyde-software = { path = "crates/hyde-software", version = "0.1.0" }
-hyde-macros = { path = "crates/hyde-macros", version = "0.1.0" }
+hyde-core = { path = "crates/hyde-core", version = "0.2.0" }
+hyde-tpm = { path = "crates/hyde-tpm", version = "0.3.0" }
+hyde-software = { path = "crates/hyde-software", version = "0.2.0" }
+hyde-macros = { path = "crates/hyde-macros", version = "0.2.0" }
 tss-esapi = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

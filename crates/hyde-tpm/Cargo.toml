@@ -1,7 +1,7 @@
 [package]
 name = "hyde-tpm"
 description = "TPM 2.0 backend for Hyde (classic + v1.85 post-quantum: ML-KEM / ML-DSA)"
-version = "0.2.1" # overrides workspace inherit: hyde-tpm ships PQC ahead of the rest
+version = "0.3.0" # overrides workspace inherit: hyde-tpm ships PQC ahead of the rest
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

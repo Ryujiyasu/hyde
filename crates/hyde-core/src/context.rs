@@ -14,7 +14,6 @@ pub struct HydeContext {
     backend: Box<dyn TeeBackend>,
     security_level: SecurityLevel,
     cache: Option<SecureCache>,
-    pqc_keypair: PqcKeypair,
 }
 
 #[derive(Debug, Clone)]
@@ -47,13 +46,10 @@ impl HydeContext {
             None
         };
 
-        let pqc_keypair = PqcKeypair::generate();
-
         Ok(Self {
             backend,
             security_level,
             cache,
-            pqc_keypair,
         })
     }
 
@@ -62,18 +58,27 @@ impl HydeContext {
     /// The data is first encrypted with ML-KEM (quantum-resistant, chip-independent),
     /// then sealed by the TPM (device-binding). Both layers are always applied.
     pub fn protect(&mut self, data: &[u8]) -> Result<ProtectedData> {
-        // Layer 1: PQC encryption (chip-independent, quantum-resistant)
-        let (kem_ciphertext, pqc_ciphertext) = pqc::pqc_encrypt(&self.pqc_keypair.ek, data)?;
+        // Layer 1: PQC encryption (chip-independent, quantum-resistant).
+        // The keypair is per-record: its decapsulation key is sealed by the TEE
+        // below and travels inside ProtectedData, so the record stays readable
+        // after this process exits. (v2 held the keypair in memory only, which
+        // made v2 records unreadable by any later context — see
+        // `finalize_unprotect`.)
+        let keypair = PqcKeypair::generate();
+        let (kem_ciphertext, pqc_ciphertext) = pqc::pqc_encrypt(&keypair.ek, data)?;
 
         // Layer 2: TPM seal (device-binding)
         let key = self.backend.generate_data_key()?;
         let ciphertext = self.backend.seal(&key, &pqc_ciphertext)?;
+        // Reusing `key` is safe: seal() draws a fresh nonce on every call.
+        let sealed_dk = self.backend.seal(&key, &keypair.dk_bytes())?;
 
         Ok(ProtectedData {
             key,
             ciphertext,
             kem_ciphertext: Some(kem_ciphertext),
-            version: 2,
+            sealed_dk: Some(sealed_dk),
+            version: 3,
             pqc_algorithm: PqcAlgorithm::MlKem768,
         })
     }
@@ -112,22 +117,29 @@ impl HydeContext {
         self.finalize_unprotect(protected, inner)
     }
 
-    /// Post-process unsealed data: apply PQC decryption for v2+, pass through for v1.
-    fn finalize_unprotect(&self, protected: &ProtectedData, inner: Vec<u8>) -> Result<Vec<u8>> {
+    /// Post-process unsealed data: apply PQC decryption for v3, pass through for v1.
+    fn finalize_unprotect(&mut self, protected: &ProtectedData, inner: Vec<u8>) -> Result<Vec<u8>> {
         match protected.version {
-            2 => {
+            3 => {
                 let kem_ct = protected
                     .kem_ciphertext
                     .as_ref()
                     .ok_or(HydeError::InvalidKey)?;
+                let sealed_dk = protected.sealed_dk.as_ref().ok_or(HydeError::InvalidKey)?;
+                let dk_bytes = self.backend.unseal(&protected.key, sealed_dk)?;
+                let dk = pqc::decapsulation_key_from_bytes(&dk_bytes)?;
                 match protected.pqc_algorithm {
-                    PqcAlgorithm::MlKem768 => {
-                        pqc::pqc_decrypt(&self.pqc_keypair.dk, kem_ct, &inner)
-                    }
+                    PqcAlgorithm::MlKem768 => pqc::pqc_decrypt(&dk, kem_ct, &inner),
                     // Future algorithms would be dispatched here:
                     // PqcAlgorithm::MlKem1024 => pqc_1024::decrypt(...)
                 }
             }
+            2 => Err(HydeError::Backend(
+                "v2 records were encrypted with a keypair that existed only in the \
+                 producing HydeContext's memory and was never persisted, so they \
+                 cannot be decrypted by any later context. Such data is unrecoverable."
+                    .into(),
+            )),
             _ => Ok(inner), // v1 legacy: inner is already plaintext
         }
     }
@@ -230,20 +242,26 @@ impl HydeContext {
     }
 
     /// Restore protected data from a backup using the matching recovery strategy.
+    /// `protected` is the record being recovered: everything except the data
+    /// key is carried over from it. Recovering the key alone is not enough —
+    /// a v3 record also needs its `kem_ciphertext` and `sealed_dk`, and
+    /// synthesising those (as this once did, by hardcoding `version: 1`) makes
+    /// `unprotect` skip the PQC layer and hand back ciphertext as if it were
+    /// plaintext.
+    ///
+    /// The recovered key unwraps to the same data key the record was sealed
+    /// with, so `sealed_dk` still opens under it.
     pub fn restore(
         &self,
         bundle: &BackupBundle,
-        ciphertext: &[u8],
+        protected: &ProtectedData,
         strategy: &dyn RecoveryStrategy,
         secret: &[u8],
     ) -> Result<ProtectedData> {
         let key = strategy.restore(bundle, secret)?;
         Ok(ProtectedData {
             key,
-            ciphertext: ciphertext.to_vec(),
-            kem_ciphertext: None,
-            version: 1,
-            pqc_algorithm: PqcAlgorithm::default(),
+            ..protected.clone()
         })
     }
 }
@@ -251,17 +269,12 @@ impl HydeContext {
 /// PQC algorithm identifier for forward compatibility.
 /// If ML-KEM-768 is ever deprecated, new algorithms can be added here
 /// without breaking existing data (old data retains its algorithm tag).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PqcAlgorithm {
     /// ML-KEM-768 (NIST FIPS 203). Default since v2.
+    #[default]
     MlKem768,
     // Future: MlKem1024, ClassicMcEliece, etc.
-}
-
-impl Default for PqcAlgorithm {
-    fn default() -> Self {
-        PqcAlgorithm::MlKem768
-    }
 }
 
 /// TEE-protected data. Serializable for persistence.
@@ -273,6 +286,10 @@ pub struct ProtectedData {
     /// ML-KEM-768 ciphertext for PQC layer (v2+). None for legacy v1 data.
     #[serde(default)]
     kem_ciphertext: Option<Vec<u8>>,
+    /// The record's ML-KEM decapsulation key, sealed by the TEE under `key`
+    /// (v3+). This is what lets the record outlive the context that made it.
+    #[serde(default)]
+    sealed_dk: Option<Vec<u8>>,
     version: u8,
     /// PQC algorithm used for this data. Enables future algorithm migration
     /// without breaking existing encrypted data.

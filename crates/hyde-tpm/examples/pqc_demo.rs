@@ -17,17 +17,27 @@ fn main() -> std::io::Result<()> {
 
     // ML-KEM: key gen -> encapsulate -> decapsulate, secrets must match.
     let secret = tpm.ml_kem_roundtrip(MlKem::K512)?;
-    println!("ML-KEM-512 round-trip OK: {}-byte shared secret matches", secret.len());
+    println!(
+        "ML-KEM-512 round-trip OK: {}-byte shared secret matches",
+        secret.len()
+    );
 
     // ML-DSA: key gen -> hardware-rooted signature.
     let (pubkey, sig) = tpm.ml_dsa_sign(MlDsa::D44, MSG)?;
-    println!("ML-DSA-44: pubkey {} B, signature {} B", pubkey.len(), sig.len());
+    println!(
+        "ML-DSA-44: pubkey {} B, signature {} B",
+        pubkey.len(),
+        sig.len()
+    );
 
     // Independent FIPS 204 verification (evidence, not attestation verify).
     let evk = EncodedVerifyingKey::<MlDsa44>::try_from(&pubkey[..]).unwrap();
     let vk = VerifyingKey::<MlDsa44>::decode(&evk);
     let signature = Signature::<MlDsa44>::try_from(&sig[..]).unwrap();
     let ok = vk.verify_with_context(MSG, &[], &signature);
-    println!("independent ml-dsa verify (ctx=empty): {}", if ok { "VALID" } else { "INVALID" });
+    println!(
+        "independent ml-dsa verify (ctx=empty): {}",
+        if ok { "VALID" } else { "INVALID" }
+    );
     Ok(())
 }

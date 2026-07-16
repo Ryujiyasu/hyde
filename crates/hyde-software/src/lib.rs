@@ -154,19 +154,14 @@ mod tests {
         let sig = backend.sign(&wrapped, msg).expect("sign");
 
         assert!(
-            verify(wrapped.algorithm, &wrapped.verifying_key, msg, &sig)
-                .expect("verify ok"),
+            verify(wrapped.algorithm, &wrapped.verifying_key, msg, &sig).expect("verify ok"),
             "signature should verify under the matching verifying key"
         );
 
         // A different message must not verify.
-        assert!(!verify(
-            wrapped.algorithm,
-            &wrapped.verifying_key,
-            b"other",
-            &sig
-        )
-        .expect("verify"));
+        assert!(
+            !verify(wrapped.algorithm, &wrapped.verifying_key, b"other", &sig).expect("verify")
+        );
     }
 
     #[test]

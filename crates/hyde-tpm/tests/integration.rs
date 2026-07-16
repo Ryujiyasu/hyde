@@ -27,6 +27,34 @@ fn test_is_available() {
     assert!(TpmBackend::is_available());
 }
 
+/// A record must stay readable after the context that wrote it is gone.
+///
+/// v2 kept the ML-KEM keypair in HydeContext's memory and never persisted it, so
+/// every record one context wrote was undecryptable by the next — and quietly,
+/// because ML-KEM's implicit rejection turns a wrong decapsulation key into a
+/// wrong shared secret instead of an error, surfacing only as a downstream
+/// AES-GCM `SealMismatch` that reads like a TPM fault. No test ever protected in
+/// one context and unprotected in another, so nothing caught it. This is that
+/// test: it needs a durable backend, because a software one loses its own key on
+/// drop and would fail before the PQC layer is ever reached.
+#[test]
+fn protected_data_outlives_the_context_that_wrote_it() {
+    use hyde_core::{HydeContext, SecurityLevel};
+
+    let secret = b"a record must outlive its context";
+
+    let mut writer =
+        HydeContext::with_backend_and_security(Box::new(create_backend()), SecurityLevel::Paranoid)
+            .unwrap();
+    let protected = writer.protect(secret).unwrap();
+    drop(writer);
+
+    let mut reader =
+        HydeContext::with_backend_and_security(Box::new(create_backend()), SecurityLevel::Paranoid)
+            .unwrap();
+    assert_eq!(reader.unprotect(&protected).unwrap(), secret);
+}
+
 #[test]
 fn test_initialize_primary_key() {
     let mut backend = create_backend();

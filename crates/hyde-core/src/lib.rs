@@ -15,4 +15,4 @@ pub use passphrase::PassphraseRecovery;
 pub use protected::Protected;
 pub use recovery::{BackupBundle, RecoveryStrategy, RecoveryType};
 pub use security_level::SecurityLevel;
-pub use signing::{SigningAlgorithm, WrappedSigningKey, verify as verify_signature};
+pub use signing::{verify as verify_signature, SigningAlgorithm, WrappedSigningKey};

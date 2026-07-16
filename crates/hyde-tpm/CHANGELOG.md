@@ -2,6 +2,33 @@
 
 Notable changes to `hyde-tpm`. This crate follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-16
+
+Breaking, inherited from `hyde-core 0.2.0`. The `pqc` path is untouched.
+
+### Changed (breaking)
+
+- Requires **`hyde-core 0.2.0`**, which changed `HydeContext::restore`'s
+  signature and the `ProtectedData` format. `TpmBackend` exposes those types, so
+  this is breaking for `tss` users. In short: records written by earlier
+  releases (v2) were never readable once the writing process exited, and are now
+  rejected with an explicit error instead of an opaque `SealMismatch`. See
+  hyde-core's changelog.
+- MSRV is now **1.85** (`ml-dsa 0.1.1` requires it). Earlier releases declared
+  1.74 and never satisfied it; CI built on `rust:1.74` and had been failing.
+
+### Added
+
+- `protected_data_outlives_the_context_that_wrote_it` — a regression test for
+  the bug above. It needs a durable backend: a software one drops its own key
+  and fails before the PQC layer is ever reached, which is why nothing caught
+  this for months.
+
+### Fixed
+
+- Removed a no-op `Into::into` on the TSS auth session (clippy
+  `useless_conversion`), which had been failing `cargo clippy -- -D warnings`.
+
 ## [0.2.1] - 2026-07-16
 
 Metadata only. The compiled code is identical to 0.2.0 — nothing to migrate.

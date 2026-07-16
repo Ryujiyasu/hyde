@@ -159,7 +159,12 @@ fn sign_seq_start(key: u32) -> Vec<u8> {
 fn sign_seq_complete(seq: u32, key: u32, message: &[u8]) -> Vec<u8> {
     let mut p = Buf::default();
     p.tpm2b(message);
-    frame(CC_SIGN_SEQ_COMPLETE, &[seq, key], &[pw_session(), pw_session()], &p.0)
+    frame(
+        CC_SIGN_SEQ_COMPLETE,
+        &[seq, key],
+        &[pw_session(), pw_session()],
+        &p.0,
+    )
 }
 fn verify_seq_start(key: u32) -> Vec<u8> {
     let mut p = Buf::default();
@@ -243,13 +248,20 @@ impl PqcTpm {
         if secret_a == secret_b && !secret_a.is_empty() {
             Ok(secret_a)
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "KEM secret mismatch"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "KEM secret mismatch",
+            ))
         }
     }
 
     /// ML-DSA key generation + sign `message`.
     /// Returns `(public_key, signature)` (raw, TPM2B length stripped).
-    pub fn ml_dsa_sign(&mut self, set: MlDsa, message: &[u8]) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
+    pub fn ml_dsa_sign(
+        &mut self,
+        set: MlDsa,
+        message: &[u8],
+    ) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
         let r = self.transceive(&create_primary(&tpmt_public_mldsa(set as u16)))?;
         let key = be32(&r, 10);
         // out_public.unique = ML-DSA public key.
@@ -267,7 +279,12 @@ impl PqcTpm {
 
     /// On-TPM verify of a signature against `message`: returns `true` if the TPM
     /// returns a validation ticket (MESSAGE_VERIFIED).
-    pub fn ml_dsa_verify_on_tpm(&mut self, key: u32, message: &[u8], sig: &[u8]) -> std::io::Result<bool> {
+    pub fn ml_dsa_verify_on_tpm(
+        &mut self,
+        key: u32,
+        message: &[u8],
+        sig: &[u8],
+    ) -> std::io::Result<bool> {
         let r = self.transceive(&verify_seq_start(key))?;
         let vseq = be32(&r, 10);
         self.transceive(&sequence_update(vseq, message))?;
@@ -298,7 +315,10 @@ mod oracle {
         // conn033 TPMT_PUBLIC(ML-KEM-512), verified byte-for-byte ×3 param sets.
         assert_eq!(
             tpmt_public_mlkem(MlKem::K512 as u16),
-            [0x00, 0xa0, 0x00, 0x0b, 0x00, 0x02, 0x04, 0x72, 0x00, 0x00, 0x00, 0x10, 0x00, 0x01, 0x00, 0x00]
+            [
+                0x00, 0xa0, 0x00, 0x0b, 0x00, 0x02, 0x04, 0x72, 0x00, 0x00, 0x00, 0x10, 0x00, 0x01,
+                0x00, 0x00
+            ]
         );
     }
 
@@ -307,7 +327,10 @@ mod oracle {
         // conn003 TPMT_PUBLIC(ML-DSA-44), verified byte-for-byte ×3 param sets.
         assert_eq!(
             tpmt_public_mldsa(MlDsa::D44 as u16),
-            [0x00, 0xa1, 0x00, 0x0b, 0x00, 0x04, 0x04, 0x72, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00]
+            [
+                0x00, 0xa1, 0x00, 0x0b, 0x00, 0x04, 0x04, 0x72, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+                0x00
+            ]
         );
     }
 
